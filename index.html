@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tablero operativo de la Central de Monitoreo de San José de la Esquina.">
+  <title>Central de Monitoreo — San José de la Esquina</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="assets/logo-san-jose-de-la-esquina.svg" alt="Municipalidad de San José de la Esquina">
+      <div><h1>Central de Monitoreo</h1><p>Seguimiento operativo municipal</p></div>
+    </div>
+    <div class="header-actions">
+      <span class="status" id="status">Cargando datos…</span>
+      <button class="btn icon-btn" id="themeToggle" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
+      <button class="btn primary" id="refreshBtn">Actualizar datos</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="toolbar" aria-label="Filtros">
+      <label>Buscar <input id="searchFilter" type="search" placeholder="Cámara, lugar o responsable"></label>
+      <label>Estado <select id="statusFilter"><option value="all">Todos</option></select></label>
+      <label>Prioridad <select id="priorityFilter"><option value="all">Todas</option></select></label>
+      <button class="btn" id="clearFilters">Limpiar filtros</button>
+    </section>
+
+    <div class="error-banner" id="errorBanner" hidden></div>
+    <div class="quality-banner" id="qualityBanner" hidden></div>
+
+    <section class="kpi-grid" id="kpiGrid" aria-label="Indicadores principales"></section>
+
+    <section class="charts-grid">
+      <article class="card"><h2>Estado de las cámaras</h2><p class="hint">Distribución del inventario filtrado</p><div id="cameraStatusChart"></div></article>
+      <article class="card"><h2>Trabajos por estado</h2><p class="hint">Situación actual del plan de tareas</p><div id="workStatusChart"></div></article>
+      <article class="card"><h2>Cámaras por prioridad</h2><p class="hint">Criticidad declarada en el inventario</p><div id="priorityChart"></div></article>
+      <article class="card"><h2>Evolución de cobertura</h2><p class="hint">Registros válidos del KPI histórico</p><div id="historyChart"></div></article>
+    </section>
+
+    <section class="card panel">
+      <div class="section-heading"><div><h2>Trabajos pendientes</h2><p class="hint">Ordenados por vencimiento y prioridad operativa</p></div><span class="count" id="workCount"></span></div>
+      <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Fecha estimada</th><th>Situación</th></tr></thead><tbody id="worksBody"></tbody></table></div>
+    </section>
+
+    <section class="card panel">
+      <div class="section-heading"><div><h2>Inventario de cámaras</h2><p class="hint">La vista pública omite las direcciones IP</p></div><span class="count" id="cameraCount"></span></div>
+      <div class="table-scroll"><table><thead><tr><th>ID</th><th>Nombre</th><th>Modelo</th><th>Localización</th><th>Estado</th><th>Prioridad</th><th>Última revisión</th><th>Observaciones</th></tr></thead><tbody id="camerasBody"></tbody></table></div>
+    </section>
+
+    <section class="card panel"><h2>Últimas intervenciones</h2><p class="hint">Actividad registrada en la bitácora</p><div id="activityList" class="timeline"></div></section>
+  </main>
+
+  <footer>Datos leídos en vivo desde la <a href="https://docs.google.com/spreadsheets/d/e/2PACX-1vQ7MaaihiDPem8QW7PEywjw2OAwXBQS3TJDNLzZXGRiWawU0XR1TVK9oe8mVrXmlw/pubhtml" target="_blank" rel="noopener">planilla municipal</a>. Última actualización: <span id="lastUpdated">—</span>.</footer>
+  <script src="js/app.js" defer></script>
+</body>
+</html>
