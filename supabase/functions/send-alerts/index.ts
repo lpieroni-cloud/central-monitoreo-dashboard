@@ -16,13 +16,14 @@ Deno.serve(async () => {
 
   const { data: rcpts } = await sb.from("alert_recipients").select("email").eq("active", true);
   const to = (rcpts ?? []).map((r) => r.email);
-  if (!to.length) return json({ sent: 0, warning: "No hay destinatarios activos" });
 
   const transport = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass } });
   let sent = 0;
   for (const m of pending) {
     try {
-      await transport.sendMail({ from: `Central de Monitoreo <${user}>`, to, subject: m.subject, text: m.body });
+      const dest = m.to_email ? [m.to_email] : to;
+      if (!dest.length) throw new Error("No hay destinatarios activos");
+      await transport.sendMail({ from: `Central de Monitoreo <${user}>`, to: dest, subject: m.subject, text: m.body });
       await sb.from("alert_outbox").update({ status: "sent", sent_at: new Date().toISOString(), attempts: m.attempts + 1, last_error: null }).eq("id", m.id);
       sent++;
     } catch (e) {

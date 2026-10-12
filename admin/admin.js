@@ -345,6 +345,8 @@ function renderBigMap() {
       .bindPopup(`<strong>#${c.id} ${esc(c.name)}</strong><br>${esc(c.address || '')}<br>${STATUS[c.status]}${c.coords_verified ? '' : '<br><em>ubicación sin verificar</em>'}`);
     if (c.azimuth_deg != null && c.fov_deg && c.range_m) L.polygon(cone(c), { color: col, weight: 1, fillOpacity: .15 }).addTo(bigLayer);
   });
+  const n = (s) => located.filter(c => c.status === s).length, pending = state.cams.filter(c => c.active && c.lat == null).length;
+  $('#mapLegend').innerHTML = Object.keys(STATUS).filter(s => n(s)).map(s => `<span><i style="background:${COLOR[s]}"></i>${STATUS[s]}: ${n(s)}</span>`).join('') + (pending ? `<span>Sin ubicar: ${pending}</span>` : '');
   setTimeout(() => { bigMap.invalidateSize(); if (located.length) bigMap.fitBounds(L.latLngBounds(located.map(c => [c.lat, c.lng])).pad(.2), { maxZoom: 17 }); }, 100);
 }
 
