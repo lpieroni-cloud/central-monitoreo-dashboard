@@ -39,6 +39,7 @@ async function enter(user) {
   if (!data || !data.active) { await sb.auth.signOut(); return showLogin('Tu usuario todavía no tiene permisos. Pedile acceso a un administrador.'); }
   state.me = { ...data, id: user.id };
   $('#who').textContent = `${data.name} · ${data.role}`; $('#who').hidden = false; $('#logoutBtn').hidden = false;
+  $('#pwdBtn').hidden = false;
   $('#loginView').hidden = true; $('#appView').hidden = false;
   $('#auditTab').hidden = data.role !== 'admin';
   $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canWork(); $('#newLog').hidden = !canWork();
@@ -50,7 +51,18 @@ $('#loginForm').addEventListener('submit', async (e) => {
   if (error) { $('#loginMsg').textContent = 'Correo o contraseña incorrectos.'; return; }
   $('#password').value = ''; await enter(data.user);
 });
-$('#logoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); state.me = null; showLogin(); });
+$('#logoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); state.me = null; $('#pwdBtn').hidden = true; showLogin(); });
+$('#pwdBtn').addEventListener('click', () => {
+  const pw = (n, l) => `<label>${l}<input type="password" name="${n}" autocomplete="new-password" minlength="12" required></label>`;
+  openDialog('Cambiar contraseña', `<p class="hint">Usá 12 caracteres o más. Combiná letras, números y símbolos, y no la reutilices en otros sitios.</p>${pw('p1', 'Nueva contraseña')}${pw('p2', 'Repetir contraseña')}`, async (fd) => {
+    const a = fd.get('p1'), b = fd.get('p2');
+    if (a !== b) throw new Error('Las contraseñas no coinciden.');
+    if (a.length < 12) throw new Error('Tiene que tener al menos 12 caracteres.');
+    const { error } = await sb.auth.updateUser({ password: a });
+    if (error) throw error;
+    toast('Contraseña actualizada');
+  });
+});
 
 /* ---------- datos ---------- */
 async function loadAll() {
