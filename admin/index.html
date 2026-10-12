@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Panel de edición — Central de Monitoreo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="../css/styles.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="../assets/logo-san-jose-de-la-esquina.svg" alt="Municipalidad de San José de la Esquina">
+      <div><h1>Panel de edición</h1><p>Central de Monitoreo</p></div>
+    </div>
+    <div class="header-actions">
+      <span class="status" id="who" hidden></span>
+      <a class="btn" href="../">Ver sitio público</a>
+      <button class="btn" id="themeToggle" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
+      <button class="btn" id="logoutBtn" hidden>Salir</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="card login" id="loginView" hidden>
+      <h2>Ingresar</h2>
+      <form id="loginForm">
+        <label>Correo <input type="email" id="email" autocomplete="username" required></label>
+        <label>Contraseña <input type="password" id="password" autocomplete="current-password" required></label>
+        <button class="btn primary" type="submit">Ingresar</button>
+        <p class="form-msg" id="loginMsg" role="alert"></p>
+      </form>
+    </section>
+
+    <div id="appView" hidden>
+      <nav class="tabs" id="tabs">
+        <button data-tab="cameras" class="active">Cámaras</button>
+        <button data-tab="works">Trabajos</button>
+        <button data-tab="log">Última acción</button>
+        <button data-tab="map">Mapa</button>
+        <button data-tab="audit" id="auditTab" hidden>Historial de cambios</button>
+      </nav>
+      <div class="error-banner" id="errorBanner" hidden></div>
+
+      <section id="tab-cameras">
+        <div class="toolbar">
+          <label>Buscar <input id="camSearch" type="search" placeholder="Nombre, dirección, IP"></label>
+          <label>Estado <select id="camStatus"><option value="all">Todos</option></select></label>
+          <button class="btn primary" id="newCamera">Nueva cámara</button>
+        </div>
+        <div class="card panel"><div class="section-heading"><h2>Inventario</h2><span class="count" id="camCount"></span></div>
+          <div class="table-scroll"><table><thead><tr><th>ID</th><th>Nombre</th><th>Dirección</th><th>Estado</th><th>Prioridad</th><th>IP</th><th>Contrato EPE</th><th>Ubicación</th><th>Última acción</th><th></th></tr></thead><tbody id="camBody"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-works" hidden>
+        <div class="toolbar"><button class="btn primary" id="newWork">Nuevo trabajo</button></div>
+        <div class="card panel"><div class="section-heading"><h2>Trabajos</h2><span class="count" id="workCount"></span></div>
+          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th><th>Notas</th><th></th></tr></thead><tbody id="workBody"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-log" hidden>
+        <div class="toolbar"><button class="btn primary" id="newLog">Registrar acción</button></div>
+        <div class="card panel"><div class="section-heading"><h2>Acciones registradas</h2><span class="count" id="logCount"></span></div>
+          <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Cámara</th><th>Responsable</th><th>Tipo</th><th>Descripción</th><th>Resultado</th><th>Próxima acción</th><th></th></tr></thead><tbody id="logBody"></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-map" hidden>
+        <div class="card panel"><div class="section-heading"><h2>Mapa de cámaras</h2><span class="count" id="mapCount"></span></div>
+          <div id="bigMap" class="map"></div></div>
+      </section>
+
+      <section id="tab-audit" hidden>
+        <div class="card panel"><div class="section-heading"><h2>Últimos 150 cambios</h2></div>
+          <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Tabla</th><th>ID</th><th>Acción</th><th>Usuario</th><th>Cambios</th></tr></thead><tbody id="auditBody"></tbody></table></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
