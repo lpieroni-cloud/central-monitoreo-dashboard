@@ -1,80 +1,42 @@
 'use strict';
 
-const BASE = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ7MaaihiDPem8QW7PEywjw2OAwXBQS3TJDNLzZXGRiWawU0XR1TVK9oe8mVrXmlw/pub?output=csv&gid=';
-const SHEETS = { cameras:'1988961508', works:'585065282', log:'1024327547', history:'1553361675' };
-const state = { cameras:[], works:[], log:[], history:[], quality:[] };
+const SB_URL = 'https://uotyqvijtbsbvenvyxoc.supabase.co/rest/v1/';
+const SB_KEY = 'sb_publishable_uAF7k_qwYzADd43d-22oxg_6EJRhWBr';
+const state = { cameras:[], works:[], log:[], history:[] };
 const $ = (s) => document.querySelector(s);
 const clean = (v) => String(v ?? '').replace(/\s+/g,' ').trim();
-const fold = (v) => clean(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+const fold = (v) => clean(v).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 const esc = (v) => clean(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const redactIP = (v) => clean(v).replace(/\b(\d{1,3}\.){3}\d{1,3}\b/g, '[IP oculta]');
 
-function parseCSV(text){
-  const rows=[]; let row=[],field='',quoted=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i];
-    if(quoted){ if(c==='"'){ if(text[i+1]==='"'){field+='"';i++;}else quoted=false; } else field+=c; }
-    else if(c==='"') quoted=true;
-    else if(c===','){row.push(field);field='';}
-    else if(c==='\n'){row.push(field);rows.push(row);row=[];field='';}
-    else if(c!=='\r') field+=c;
-  }
-  if(field||row.length){row.push(field);rows.push(row);} return rows;
-}
+const CAMERA_GROUP = { operativa:'Operativa', sin_instalar:'Sin instalar', mantenimiento:'Mantenimiento', falta_red:'Con problema', sin_senal:'Con problema', falla:'Con problema' };
+const WORK_GROUP = { completado:'Completado', en_proceso:'En proceso', demorado:'Demorado', cancelado:'Cancelado', no_iniciado:'No iniciado' };
+const PRIORITY = { alta:'Alta', media:'Media', baja:'Baja' };
 
-function table(rows, firstHeader){
-  const at=rows.findIndex(r=>fold(r[0])===fold(firstHeader));
-  if(at<0) throw new Error(`No se encontró la tabla ${firstHeader}`);
-  const headers=rows[at].map(fold); const out=[];
-  for(const r of rows.slice(at+1)){
-    if(!clean(r[0]) || fold(r[0]).startsWith('total:')) continue;
-    const obj={}; headers.forEach((h,i)=>{if(h)obj[h]=clean(r[i]);}); out.push(obj);
-  }
-  return out;
-}
-
-function parseDate(raw, context){
-  const s=clean(raw).replace(/-/g,'/'); if(!s) return null;
-  const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if(!m){state.quality.push(`Fecha no reconocida en ${context}: ${s}`);return null;}
-  const [d,mo,y]=[+m[1],+m[2],+m[3]]; const date=new Date(y,mo-1,d);
-  if(y<2000||y>2100||date.getDate()!==d||date.getMonth()!==mo-1){state.quality.push(`Fecha inválida en ${context}: ${s}`);return null;}
-  return date;
-}
-function pct(v){const n=Number(clean(v).replace('%','').replace(',','.'));return Number.isFinite(n)?n:null;}
+function parseDate(s){const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?new Date(+m[1],+m[2]-1,+m[3]):null;}
 function dateText(d){return d?d.toLocaleDateString('es-AR'):'—';}
-
-function cameraGroup(status){
-  const s=fold(status);
-  if(s==='ok'||s==='instalada') return 'Operativa';
-  if(s.includes('sin instalar')) return 'Sin instalar';
-  if(s.includes('mantenimiento')) return 'Mantenimiento';
-  if(s.includes('falta red')||s.includes('sin senal')||s.includes('falla')||s.includes('problema')) return 'Con problema';
-  return clean(status)||'Sin estado';
-}
-function workGroup(status){
-  const s=fold(status); if(s.includes('complet'))return 'Completado'; if(s.includes('proceso'))return 'En proceso';
-  if(s.includes('demor'))return 'Demorado'; if(s.includes('cancel'))return 'Cancelado'; return 'No iniciado';
-}
+const cameraGroup = (status) => CAMERA_GROUP[status] || 'Sin estado';
+const workGroup = (status) => WORK_GROUP[status] || 'No iniciado';
 function badge(value,type='status'){
   const v=type==='camera'?cameraGroup(value):type==='work'?workGroup(value):clean(value);
   const f=fold(v); const cls=(f==='operativa'||f==='completado')?'good':(f.includes('problema')||f.includes('demor')||f.includes('venc'))?'bad':(f.includes('mantenimiento')||f.includes('proceso')||f.includes('alta'))?'warn':'neutral';
   return `<span class="badge ${cls}">${esc(v)}</span>`;
 }
 
-async function getSheet(gid){
-  const res=await fetch(`${BASE}${gid}&_cb=${Date.now()}`,{cache:'no-store'});
-  if(!res.ok) throw new Error(`Google Sheets respondió ${res.status}`); return parseCSV(await res.text());
+async function getView(name, order){
+  const res=await fetch(`${SB_URL}${name}?select=*&order=${order}`,{headers:{apikey:SB_KEY},cache:'no-store'});
+  if(!res.ok) throw new Error(`La base de datos respondió ${res.status}`);
+  return res.json();
 }
 async function load(){
-  $('#status').textContent='Actualizando…'; $('#refreshBtn').disabled=true; $('#errorBanner').hidden=true; state.quality=[];
+  $('#status').textContent='Actualizando…'; $('#refreshBtn').disabled=true; $('#errorBanner').hidden=true;
   try{
-    const [c,w,l,h]=await Promise.all(Object.values(SHEETS).map(getSheet));
-    state.cameras=table(c,'ID').map(x=>({id:x.id,name:x.nombre,model:x.modelo,location:x.localizacion,status:x.estado,review:parseDate(x['ult. revision'],`cámara ${x.id}`),notes:redactIP(x.observaciones),priority:x.prioridad||'Sin prioridad'}));
-    state.works=table(w,'N°').map(x=>({id:x['n°'],cam:x['cam id'],type:x['tipo de tarea'],start:parseDate(x['fecha inicio'],`trabajo ${x['n°']}`),due:parseDate(x['fecha fin est.'],`trabajo ${x['n°']}`),status:x.estado,progress:pct(x['avance %'])??0,owner:x.responsable,notes:redactIP(x['notas / observaciones']),remaining:x['dias restantes']}));
-    state.log=table(l,'FECHA').map(x=>({date:parseDate(x.fecha,'bitácora'),cam:x['cam id'],tech:x.tecnico,type:x.tipo,description:redactIP(x['descripcion detallada']),result:redactIP(x['resultado / estado final']),next:redactIP(x['proxima accion'])})).filter(x=>x.description);
-    state.history=table(h,'SEMANA').map(x=>({week:x.semana,date:parseDate(x['fecha registro'],x.semana),coverage:pct(x['% cobertura'])})).filter(x=>x.date&&x.coverage!==null);
+    const [c,w,l,h]=await Promise.all([getView('public_cameras','id.asc'),getView('public_work_orders','due_date.asc.nullslast'),getView('public_logbook','date.desc,id.desc'),getView('public_kpi','date.asc')]);
+    state.cameras=c.map(x=>({id:x.id,name:x.name,model:x.model,location:x.address,status:x.status,review:parseDate(x.last_review_at),notes:x.notes,priority:PRIORITY[x.priority]||'Sin prioridad'}));
+    state.works=w.map(x=>({id:x.id,cam:x.camera_id,type:x.task_type,start:parseDate(x.start_date),due:parseDate(x.due_date),status:x.status,progress:Number(x.progress)||0,owner:x.assignee,notes:x.notes}));
+    state.log=l.map(x=>({date:parseDate(x.date),cam:x.camera_id,tech:x.technician,type:x.type,description:x.description,result:x.result,next:x.next_action})).filter(x=>x.description);
+    state.history=h.map(x=>({week:x.week_label,date:parseDate(x.date),coverage:Number(x.coverage)})).filter(x=>x.date&&Number.isFinite(x.coverage));
     populateFilters(); render(); $('#status').textContent='Datos en vivo'; $('#lastUpdated').textContent=new Date().toLocaleString('es-AR');
-  }catch(err){console.error(err);$('#status').textContent='Error al actualizar';$('#errorBanner').textContent=`No se pudieron cargar los datos: ${err.message}. Verificá que la planilla siga publicada.`;$('#errorBanner').hidden=false;}
+  }catch(err){console.error(err);$('#status').textContent='Error al actualizar';$('#errorBanner').textContent=`No se pudieron cargar los datos: ${err.message}. Intentá de nuevo en unos minutos.`;$('#errorBanner').hidden=false;}
   finally{$('#refreshBtn').disabled=false;}
 }
 
@@ -96,7 +58,6 @@ function render(){
   const coverage=cams.length?Math.round(get('Operativa')/cams.length*100):0;
   $('#kpiGrid').innerHTML=[kpi(cams.length,'Cámaras registradas','inventario filtrado'),kpi(get('Operativa'),'Operativas',`${coverage}% de cobertura`),kpi(get('Sin instalar'),'Sin instalar','pendientes de despliegue'),kpi(get('Con problema')+get('Mantenimiento'),'Requieren atención','problema o mantenimiento'),kpi(state.works.length,'Trabajos registrados',`${complete} completados`),kpi(active.length,'Trabajos pendientes',`${overdue(active)} vencidos`)].join('');
   renderBars('#cameraStatusChart',groups); renderBars('#workStatusChart',counts(state.works,w=>workGroup(w.status))); renderBars('#priorityChart',counts(cams,c=>c.priority)); renderHistory(); renderCameras(cams); renderWorks(active); renderLog();
-  const unique=[...new Set(state.quality)]; $('#qualityBanner').hidden=!unique.length; $('#qualityBanner').textContent=unique.length?`Calidad de datos: se ignoraron ${unique.length} fecha(s) inválida(s). Revisá la planilla de origen.`:'';
 }
 function overdue(works){const today=new Date();today.setHours(0,0,0,0);return works.filter(w=>w.due&&w.due<today).length;}
 function renderBars(selector,data){
@@ -113,9 +74,14 @@ function renderCameras(cams){
   $('#cameraCount').textContent=`${cams.length} de ${state.cameras.length}`;
   $('#camerasBody').innerHTML=cams.map(c=>`<tr><td>${esc(c.id)}</td><td><strong>${esc(c.name)}</strong></td><td>${esc(c.model)||'—'}</td><td>${esc(c.location)||'—'}</td><td>${badge(c.status,'camera')}</td><td>${badge(c.priority)}</td><td>${dateText(c.review)}</td><td class="wrap">${esc(c.notes)||'—'}</td></tr>`).join('')||'<tr><td colspan="8">No hay cámaras para estos filtros.</td></tr>';
 }
+function dueText(w,now){
+  if(!w.due) return '—';
+  const days=Math.round((w.due-now)/86400000);
+  return days<0?badge('Vencido'):days===0?'Vence hoy':`En ${days} día${days===1?'':'s'}`;
+}
 function renderWorks(works){
   const now=new Date();now.setHours(0,0,0,0); const sorted=[...works].sort((a,b)=>(a.due?.getTime()||Infinity)-(b.due?.getTime()||Infinity)); $('#workCount').textContent=`${sorted.length} pendientes`;
-  $('#worksBody').innerHTML=sorted.map(w=>{const late=w.due&&w.due<now;return `<tr><td>${esc(w.id)}</td><td>#${esc(w.cam)}</td><td>${esc(w.type)}</td><td>${badge(w.status,'work')}</td><td><div class="progress" title="${w.progress}%"><i style="width:${Math.max(0,Math.min(100,w.progress))}%"></i></div><small>${w.progress}%</small></td><td>${esc(w.owner)||'—'}</td><td>${dateText(w.due)}</td><td>${late?badge('Vencido'):esc(w.remaining)||'—'}</td></tr>`;}).join('')||'<tr><td colspan="8">No hay trabajos pendientes.</td></tr>';
+  $('#worksBody').innerHTML=sorted.map(w=>`<tr><td>${esc(w.id)}</td><td>#${esc(w.cam)}</td><td>${esc(w.type)}</td><td>${badge(w.status,'work')}</td><td><div class="progress" title="${w.progress}%"><i style="width:${Math.max(0,Math.min(100,w.progress))}%"></i></div><small>${w.progress}%</small></td><td>${esc(w.owner)||'—'}</td><td>${dateText(w.due)}</td><td>${dueText(w,now)}</td></tr>`).join('')||'<tr><td colspan="8">No hay trabajos pendientes.</td></tr>';
 }
 function renderLog(){
   const items=[...state.log].sort((a,b)=>(b.date?.getTime()||0)-(a.date?.getTime()||0)).slice(0,8);
@@ -125,6 +91,6 @@ function renderLog(){
 ['#searchFilter','#statusFilter','#priorityFilter'].forEach(s=>$(s).addEventListener(s==='#searchFilter'?'input':'change',render));
 $('#clearFilters').addEventListener('click',()=>{$('#searchFilter').value='';$('#statusFilter').value='all';$('#priorityFilter').value='all';render();});
 $('#refreshBtn').addEventListener('click',load);
-$('#themeToggle').addEventListener('click',()=>{const dark=document.documentElement.dataset.theme==='dark';if(dark)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme='dark';localStorage.setItem('monitor-theme',dark?'light':'dark');});
-if(localStorage.getItem('monitor-theme')==='dark')document.documentElement.dataset.theme='dark';
+$('#themeToggle').addEventListener('click',()=>{const dark=document.documentElement.dataset.theme==='dark';if(dark)delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme='dark';try{localStorage.setItem('monitor-theme',dark?'light':'dark');}catch(e){}});
+try{if(localStorage.getItem('monitor-theme')==='dark')document.documentElement.dataset.theme='dark';}catch(e){}
 load();
