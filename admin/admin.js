@@ -42,7 +42,7 @@ async function enter(user) {
   $('#pwdBtn').hidden = false;
   $('#loginView').hidden = true; $('#appView').hidden = false;
   $('#auditTab').hidden = data.role !== 'admin';
-  $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canWork(); $('#newLog').hidden = !canWork();
+  $('#newCamera').hidden = !canCams(); $('#verifyAll').hidden = !canCams(); $('#newWork').hidden = !canWork(); $('#newLog').hidden = !canWork();
   await loadAll();
 }
 $('#loginForm').addEventListener('submit', async (e) => {
@@ -121,6 +121,14 @@ function renderCams() {
 ['#camSearch', '#camStatus'].forEach(s => $(s).addEventListener('input', renderCams));
 $('#camBody').addEventListener('click', (e) => { const b = e.target.closest('[data-cam]'); if (b) openCamera(state.cams.find(c => c.id === +b.dataset.cam)); });
 $('#newCamera').addEventListener('click', () => openCamera(null));
+$('#verifyAll').addEventListener('click', async () => {
+  const n = state.cams.filter(c => c.lat != null && !c.coords_verified).length;
+  if (!n) return toast('Todas las ubicaciones cargadas ya están verificadas.');
+  if (!confirm(`Se van a marcar como verificadas ${n} cámaras que tienen ubicación. ¿Confirmás que ya las comprobaste en el lugar?`)) return;
+  const { error } = await sb.from('cameras').update({ coords_verified: true }).not('lat', 'is', null).not('lng', 'is', null).eq('coords_verified', false);
+  if (error) return fail(error);
+  toast(`${n} ubicaciones verificadas`); await loadAll();
+});
 
 const field = (name, label, val, attrs = '', cls = '') => `<label class="${cls}">${label}<input name="${name}" value="${esc(val ?? '')}" ${attrs}></label>`;
 const area = (name, label, val, cls = '') => `<label class="${cls}">${label}<textarea name="${name}">${esc(val ?? '')}</textarea></label>`;
