@@ -82,6 +82,7 @@ async function loadAll() {
     state.people = new Map((p.data || []).map(x => [x.user_id, x.name]));
   }
   fillStatusFilter(); renderCams(); renderWorks(); renderLogs();
+  try { renderDashboard(); } catch (e) { console.error(e); $('#errorBanner').textContent = `No se pudo dibujar el dashboard: ${e.message}`; $('#errorBanner').hidden = false; }
   if (!$('#tab-map').hidden) renderBigMap();
   if (!$('#tab-audit').hidden) renderAudit();
 }
@@ -92,10 +93,63 @@ const camName = (id) => { const c = state.cams.find(x => x.id === id); return c 
 $('#tabs').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-tab]'); if (!b) return;
   document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('active', x === b));
-  ['cameras', 'works', 'log', 'map', 'audit'].forEach(t => { $('#tab-' + t).hidden = t !== b.dataset.tab; });
+  ['dashboard', 'cameras', 'works', 'log', 'map', 'audit'].forEach(t => { $('#tab-' + t).hidden = t !== b.dataset.tab; });
   if (b.dataset.tab === 'map') renderBigMap();
   if (b.dataset.tab === 'audit') renderAudit();
 });
+
+/* ---------- dashboard ---------- */
+const FAULTS = ['falla', 'falta_red', 'sin_senal'];
+const bars = (rows) => {
+  const max = Math.max(...rows.map(r => r.value), 1);
+  return rows.length ? `<div class="chart-bars">${rows.map(r => `<div class="bar-row"><span title="${esc(r.label)}">${esc(r.label)}</span><span class="bar-track"><i class="bar-fill" style="width:${r.value / max * 100}%;background:${r.color || 'var(--blue)'}"></i></span><strong>${r.value}</strong></div>`).join('')}</div>` : '<p class="hint">Sin datos.</p>';
+};
+const dashKpi = (value, label, sub, color) => `<div class="kpi"${color ? ` style="border-color:${color}"` : ''}><strong>${esc(value)}</strong><span>${esc(label)}</span><small>${esc(sub)}</small></div>`;
+
+function renderDashboard() {
+  const cams = state.cams.filter(c => c.active), n = (f) => cams.filter(f).length;
+  const op = n(c => c.status === 'operativa'), fault = n(c => FAULTS.includes(c.status)), mant = n(c => c.status === 'mantenimiento'), sin = n(c => c.status === 'sin_instalar');
+  const cov = cams.length ? Math.round(op / cams.length * 100) : 0;
+  const today = new Date().toLocaleDateString('en-CA');
+  const pending = state.works.filter(w => !['completado', 'cancelado'].includes(w.status));
+  const late = pending.filter(w => w.due_date && w.due_date < today);
+  const avg = pending.length ? Math.round(pending.reduce((s, w) => s + w.progress, 0) / pending.length) : 0;
+  const located = n(c => c.lat != null), verified = n(c => c.lat != null && c.coords_verified);
+  const part = (s) => n(c => c.status === s);
+  $('#dashKpis').innerHTML = [
+    dashKpi(cams.length, 'Cámaras registradas', 'activas en el sistema'),
+    dashKpi(op, 'Funcionando', `${cov}% de cobertura`, COLOR.operativa),
+    dashKpi(fault, 'Con falla', `Sin red ${part('falta_red')} · Sin señal ${part('sin_senal')} · Falla ${part('falla')}`, fault ? COLOR.sin_senal : null),
+    dashKpi(mant, 'En reparación', 'en mantenimiento', mant ? COLOR.mantenimiento : null),
+    dashKpi(sin, 'Sin instalar', 'pendientes de instalación'),
+    dashKpi(pending.length, 'Trabajos pendientes', `${late.length} vencidos`, late.length ? COLOR.sin_senal : null),
+    dashKpi(`${avg}%`, 'Avance de trabajos', 'promedio de los pendientes'),
+    dashKpi(`${located}/${cams.length}`, 'Ubicadas en el mapa', `${verified} verificadas`)
+  ].join('');
+
+  $('#dashStatus').innerHTML = bars(Object.keys(STATUS).map(s => ({ label: STATUS[s], value: part(s), color: COLOR[s] })).filter(r => r.value));
+  $('#dashWorks').innerHTML = bars(Object.keys(WSTATUS).map(s => ({ label: WSTATUS[s], value: state.works.filter(w => w.status === s).length })).filter(r => r.value));
+  $('#dashPriority').innerHTML = bars(Object.keys(PRIORITY).map(p => ({ label: `${PRIORITY[p]} (${n(c => c.priority === p && c.status === 'operativa')} operativas)`, value: n(c => c.priority === p) })).filter(r => r.value));
+  const q = (label, v) => ({ label, value: v });
+  $('#dashQuality').innerHTML = bars([q('Con IP cargada', n(c => c.ip)), q('Con contrato EPE', n(c => c.epe_contract_id != null)), q('Con ubicación', located), q('Ubicación verificada', verified), q('Con función definida', n(c => c.function))]) + `<p class="hint">Sobre ${cams.length} cámaras activas.</p>`;
+
+  const last = lastAction(), rank = { alta: 0, media: 1, baja: 2 };
+  const att = cams.filter(c => FAULTS.includes(c.status) || c.status === 'mantenimiento').sort((a, b) => rank[a.priority] - rank[b.priority] || a.id - b.id);
+  $('#dashAttCount').textContent = `${att.length}`;
+  $('#dashAttBody').innerHTML = att.map(c => { const la = last.get(c.id); return `<tr><td>${c.id}</td><td><strong>${esc(c.name)}</strong></td><td>${esc(c.address) || '—'}</td>
+    <td><span class="badge" style="background:${COLOR[c.status]}22;color:${COLOR[c.status]}">${STATUS[c.status]}</span></td><td>${PRIORITY[c.priority]}</td>
+    <td>${la ? `${fmtDate(la.date)} · ${esc(la.description).slice(0, 50)}` : 'Sin acciones registradas'}</td></tr>`; }).join('') || '<tr><td colspan="6">Todas las cámaras activas están funcionando.</td></tr>';
+
+  const sorted = [...pending].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
+  $('#dashWorkCount').textContent = `${sorted.length}`;
+  $('#dashWorkBody').innerHTML = sorted.map(w => `<tr><td>${w.id}</td><td>${esc(camName(w.camera_id))}</td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td><td>${w.progress}%</td><td>${esc(w.assignee) || '—'}</td>
+    <td>${fmtDate(w.due_date)}${w.due_date && w.due_date < today ? ' <span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencido</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="7">No hay trabajos pendientes.</td></tr>';
+
+  $('#dashLog').innerHTML = state.logs.slice(0, 5).map(x => `<article class="event"><time>${fmtDate(x.date)}</time><p><strong>${x.camera_id != null ? esc(camName(x.camera_id)) : 'General'} · ${esc(x.type || '')}</strong><br>${esc(x.description)}<br><span class="hint">${esc(x.result || '')}${x.next_action ? ` · Próxima acción: ${esc(x.next_action)}` : ''}</span></p></article>`).join('') || '<p class="hint">Sin acciones registradas.</p>';
+  $('#dashUpdated').textContent = `Actualizado ${new Date().toLocaleString('es-AR')} · se refresca solo cada minuto`;
+}
+$('#dashRefresh').addEventListener('click', () => loadAll().then(() => toast('Datos actualizados')));
+setInterval(() => { if (state.me && !$('#tab-dashboard').hidden && !$('#dlg').open) loadAll(); }, 60000);
 
 /* ---------- cámaras ---------- */
 function fillStatusFilter() {

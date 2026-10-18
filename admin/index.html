@@ -20,7 +20,6 @@
     </div>
     <div class="header-actions">
       <span class="status" id="who" hidden></span>
-      <a class="btn" href="/">Ver sitio público</a>
       <button class="btn" id="themeToggle" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
       <button class="btn" id="pwdBtn" hidden>Cambiar contraseña</button>
       <button class="btn" id="logoutBtn" hidden>Salir</button>
@@ -40,7 +39,8 @@
 
     <div id="appView" hidden>
       <nav class="tabs" id="tabs">
-        <button data-tab="cameras" class="active">Cámaras</button>
+        <button data-tab="dashboard" class="active">Dashboard</button>
+        <button data-tab="cameras">Cámaras</button>
         <button data-tab="works">Trabajos</button>
         <button data-tab="log">Última acción</button>
         <button data-tab="map">Mapa</button>
@@ -48,7 +48,23 @@
       </nav>
       <div class="error-banner" id="errorBanner" hidden></div>
 
-      <section id="tab-cameras">
+      <section id="tab-dashboard">
+        <div class="section-heading dash-head"><p class="hint" id="dashUpdated" style="margin:0"></p><button class="btn small" id="dashRefresh">Actualizar</button></div>
+        <section class="kpi-grid" id="dashKpis" aria-label="Indicadores principales"></section>
+        <section class="charts-grid">
+          <article class="card"><h2>Estado de las cámaras</h2><p class="hint">Todas las cámaras activas</p><div id="dashStatus"></div></article>
+          <article class="card"><h2>Trabajos por estado</h2><p class="hint">Plan de tareas actual</p><div id="dashWorks"></div></article>
+          <article class="card"><h2>Cámaras por prioridad</h2><p class="hint">Cuántas están operativas en cada nivel</p><div id="dashPriority"></div></article>
+          <article class="card"><h2>Calidad de datos</h2><p class="hint">Información cargada en el sistema</p><div id="dashQuality"></div></article>
+        </section>
+        <div class="card panel"><div class="section-heading"><div><h2>Requieren atención</h2><p class="hint">Cámaras con falla, sin red, sin señal o en mantenimiento</p></div><span class="count" id="dashAttCount"></span></div>
+          <div class="table-scroll"><table><thead><tr><th>ID</th><th>Nombre</th><th>Dirección</th><th>Estado</th><th>Prioridad</th><th>Última acción</th></tr></thead><tbody id="dashAttBody"></tbody></table></div></div>
+        <div class="card panel"><div class="section-heading"><div><h2>Trabajos pendientes</h2><p class="hint">Ordenados por fecha de vencimiento</p></div><span class="count" id="dashWorkCount"></span></div>
+          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th></tr></thead><tbody id="dashWorkBody"></tbody></table></div></div>
+        <div class="card panel"><h2>Últimas acciones</h2><p class="hint">Última intervención registrada</p><div id="dashLog" class="timeline"></div></div>
+      </section>
+
+      <section id="tab-cameras" hidden>
         <div class="toolbar">
           <label>Buscar <input id="camSearch" type="search" placeholder="Nombre, dirección, IP"></label>
           <label>Estado <select id="camStatus"><option value="all">Todos</option></select></label>
