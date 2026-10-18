@@ -7,13 +7,13 @@ const sb = supabase.createClient(SB_URL, SB_KEY);
 const STATUS = { operativa:'Operativa', sin_instalar:'Sin instalar', falta_red:'Falta red', sin_senal:'Sin señal', falla:'Falla', mantenimiento:'Mantenimiento' };
 const PRIORITY = { alta:'Alta', media:'Media', baja:'Baja' };
 const WSTATUS = { no_iniciado:'No iniciado', en_proceso:'En proceso', completado:'Completado', demorado:'Demorado', cancelado:'Cancelado' };
-const COLOR = { operativa:'#159467', sin_instalar:'#767c8a', falta_red:'#e99a05', sin_senal:'#ff1f4e', falla:'#ff1f4e', mantenimiento:'#e66b35' };
+const COLOR = { operativa:'#1f51ff', sin_instalar:'#8d94ad', falta_red:'#f5a000', sin_senal:'#fa0e4e', falla:'#fa0e4e', mantenimiento:'#e66b35' };
 const SOURCES = { gps:'GPS', mapa:'Clic en el mapa', geocodificada:'Desde la dirección', estimada:'Estimada' };
 const FAULTS = ['falla', 'falta_red', 'sin_senal'];
 const CENTER = [-33.09, -61.70];
 const TABS = ['dashboard', 'actas', 'works', 'cameras', 'admin', 'audit'];
 const CAT = { falla:'Falla', novedad:'Novedad', intervencion:'Intervención', observacion:'Observación' };
-const CATCOLOR = { falla:'#ff1f4e', novedad:'#1f51ff', intervencion:'#159467', observacion:'#767c8a' };
+const CATCOLOR = { falla:'#fa0e4e', novedad:'#1f51ff', intervencion:'#202e51', observacion:'#8d94ad' };
 const TURNO = { manana:'Mañana', tarde:'Tarde', noche:'Noche' };
 const ICON = {
   list: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
@@ -157,7 +157,7 @@ const bars = (rows) => {
   const max = Math.max(...rows.map(r => r.value), 1);
   return rows.length ? `<div class="chart-bars">${rows.map(r => `<div class="bar-row"><span title="${esc(r.label)}">${esc(r.label)}</span><span class="bar-track"><i class="bar-fill" style="width:${r.value / max * 100}%;background:${r.color || 'var(--blue)'}"></i></span><strong>${r.value}</strong></div>`).join('')}</div>` : '<p class="hint">Sin datos.</p>';
 };
-const kpi = (value, label, sub, color) => `<div class="kpi"${color ? ` style="--c:${color}"` : ''}><strong>${esc(value)}</strong><span>${esc(label)}</span><small>${esc(sub)}</small></div>`;
+const kpi = (value, label, sub, tone = 'white') => `<div class="kpi k-${tone}"><strong>${esc(value)}</strong><span>${esc(label)}</span><small>${esc(sub)}</small></div>`;
 
 function renderDashboard() {
   const cams = state.cams.filter(c => c.active), n = (f) => cams.filter(f).length, part = (s) => n(c => c.status === s);
@@ -168,15 +168,15 @@ function renderDashboard() {
   const late = pending.filter(w => w.due_date && w.due_date < today);
 
   $('#dashKpis').innerHTML = [
-    kpi(cams.length, 'Cámaras', 'registradas y activas'),
-    kpi(op, 'Funcionando', `${cov}% de cobertura`, COLOR.operativa),
-    kpi(fault, 'Con falla', `Sin red ${part('falta_red')} · Sin señal ${part('sin_senal')} · Falla ${part('falla')}`, fault ? COLOR.sin_senal : COLOR.operativa),
-    kpi(mant, 'En reparación', 'en mantenimiento', COLOR.mantenimiento),
-    kpi(sin, 'Sin instalar', 'pendientes de instalación', COLOR.sin_instalar),
-    kpi(pending.length, 'Tareas pendientes', `${late.length} vencidas`, late.length ? COLOR.sin_senal : 'var(--blue)')
+    kpi(cams.length, 'Cámaras', 'registradas y activas', 'white'),
+    kpi(op, 'Funcionando', `${cov}% de cobertura`, 'blue'),
+    kpi(fault, 'Con falla', `Sin red ${part('falta_red')} · Sin señal ${part('sin_senal')} · Falla ${part('falla')}`, fault ? 'magenta' : 'white'),
+    kpi(mant, 'En reparación', 'en mantenimiento', 'navy'),
+    kpi(sin, 'Sin instalar', 'pendientes de instalación', 'lav'),
+    kpi(pending.length, 'Tareas pendientes', `${late.length} vencidas`, late.length ? 'magenta' : 'white')
   ].join('');
 
-  renderBigMap(); renderHistoryChart();
+  renderBigMap(); renderHistoryChart(); $('#heroPct').textContent = cov + '%'; $('#heroSub').textContent = fault ? `${fault} cámara${fault === 1 ? '' : 's'} con falla y ${late.length} tarea${late.length === 1 ? '' : 's'} vencida${late.length === 1 ? '' : 's'}. Todo el estado de la red, en tiempo real.` : 'Todas las cámaras activas están funcionando. Estado de la red en tiempo real.';
 
   const last = lastAction(), rank = { alta: 0, media: 1, baja: 2 };
   const att = cams.filter(c => FAULTS.includes(c.status) || c.status === 'mantenimiento').sort((a, b) => rank[a.priority] - rank[b.priority] || a.id - b.id);
@@ -198,7 +198,7 @@ function renderDashboard() {
   const sorted = [...pending].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
   $('#dashWorkCount').textContent = `${sorted.length}`;
   $('#dashWorkBody').innerHTML = sorted.map(w => `<tr><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td><td>${w.progress}%</td>
-    <td>${fmtDate(w.due_date)}${w.due_date && w.due_date < today ? ' <span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencida</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="7">No hay tareas pendientes.</td></tr>';
+    <td>${fmtDate(w.due_date)}${w.due_date && w.due_date < today ? ' <span class="badge" style="background:#fa0e4e22;color:#fa0e4e">Vencida</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="7">No hay tareas pendientes.</td></tr>';
 }
 $('#dashRefresh').addEventListener('click', () => loadAll().then(() => toast('Datos actualizados')));
 setInterval(() => { if (state.me && !$('#tab-dashboard').hidden && !$('#dlg').open) loadAll(); }, 60000);
@@ -333,11 +333,11 @@ async function saveCamera(fd, cam) {
 }
 
 /* ---------- tareas de mantenimiento ---------- */
-const PRIOCOLOR = { alta:'#ff1f4e', media:'#e99a05', baja:'#767c8a' };
+const PRIOCOLOR = { alta:'#fa0e4e', media:'#f5a000', baja:'#8d94ad' };
 const prioBadge = (p) => `<span class="badge" style="background:${PRIOCOLOR[p]}22;color:${PRIOCOLOR[p]}">${PRIORITY[p]}</span>`;
 const isOpenWork = (w) => !['completado', 'cancelado'].includes(w.status);
 const isLate = (w) => isOpenWork(w) && w.due_date && w.due_date < localDate(Date.now());
-const lateBadge = '<span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencida</span>';
+const lateBadge = '<span class="badge" style="background:#fa0e4e22;color:#fa0e4e">Vencida</span>';
 const WFILTERS = { pendientes:['Pendientes', isOpenWork], vencidas:['Vencidas', isLate], curso:['En curso', w => w.status === 'en_proceso'], cerradas:['Cerradas', w => !isOpenWork(w)], todas:['Todas', () => true] };
 const workFilter = { v:'pendientes' };
 const progressBar = (p) => `<div class="progress" title="${p}%"><i style="width:${p}%"></i></div><small>${p}%</small>`;
@@ -450,7 +450,7 @@ function renderActas() {
   const rows = state.shifts.filter(s => (t === 'all' || s.shift_type === t) && (!q || [s.acta_no, s.operator_name, fmtDate(s.shift_date), TURNO[s.shift_type]].join(' ').toLowerCase().includes(q)));
   $('#actaCount').textContent = `${rows.length}`;
   $('#actaBody').innerHTML = rows.map(s => `<tr><td>${s.acta_no ?? '—'}</td><td>${fmtDate(s.shift_date)}</td><td>${TURNO[s.shift_type]}</td><td>${esc(s.operator_name)}</td><td>${entriesOf(s.id).length}</td>
-    <td>${s.status === 'abierta' ? '<span class="badge" style="background:#e99a0522;color:#a06400">Abierta</span>' : '<span class="badge" style="background:#15946722;color:#159467">Cerrada</span>'}</td>
+    <td>${s.status === 'abierta' ? '<span class="badge" style="background:#e99a0522;color:#a06400">Abierta</span>' : '<span class="badge" style="background:#1f51ff22;color:#1f51ff">Cerrada</span>'}</td>
     <td class="act"><button class="btn small icon" data-acta="${s.id}" title="Ver acta" aria-label="Ver acta">${ICON.eye}</button></td></tr>`).join('') || '<tr><td colspan="7">Todavía no hay actas.</td></tr>';
 }
 $('#actaSearch').addEventListener('input', renderActas);
@@ -728,7 +728,7 @@ async function loadAdmin() {
 }
 function renderUsers() {
   $('#userBody').innerHTML = state.users.map(u => `<tr><td><strong>${esc(u.name)}</strong></td><td>${esc(u.email)}</td><td>${ROLE[u.role]}</td>
-    <td>${u.active ? '<span class="badge" style="background:#15946722;color:#159467">Activo</span>' : '<span class="badge" style="background:#767c8a22;color:#767c8a">Desactivado</span>'}</td>
+    <td>${u.active ? '<span class="badge" style="background:#1f51ff22;color:#1f51ff">Activo</span>' : '<span class="badge" style="background:#767c8a22;color:#767c8a">Desactivado</span>'}</td>
     <td>${u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('es-AR', { hour12: false }) : 'Nunca'}</td>
     <td class="act"><span class="row-actions"><button class="btn small" data-uedit="${u.user_id}">Editar</button><button class="btn small" data-ureset="${u.user_id}">Nueva clave</button></span></td></tr>`).join('') || '<tr><td colspan="6">Sin usuarios.</td></tr>';
 }
@@ -765,6 +765,7 @@ $('#rcptBody').addEventListener('click', async (e) => {
   if (d) { const r0 = state.rcpts.find(x => x.id === +d.dataset.rdel); if (!confirm(`¿Quitar a ${r0.email} de los avisos?`)) return; const r = await sb.from('alert_recipients').delete().eq('id', r0.id); if (r.error) return fail(r.error); toast('Destinatario quitado'); await loadAdmin(); }
 });
 $('#adminTab').addEventListener('click', () => showTab('admin'));
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) showTab(b.dataset.go); });
 
 /* ---------- modo pantalla ---------- */
 let kiosk = false, kioskTimer = null;

@@ -49,15 +49,15 @@ function filteredCameras(){
   return state.cameras.filter(c=>(s==='all'||cameraGroup(c.status)===s)&&(p==='all'||c.priority===p)&&(!q||fold([c.id,c.name,c.model,c.location,c.notes].join(' ')).includes(q)));
 }
 function counts(items,key){const m=new Map();items.forEach(x=>{const k=key(x);m.set(k,(m.get(k)||0)+1);});return [...m].map(([label,value])=>({label,value})).sort((a,b)=>b.value-a.value);}
-function kpi(value,label,sub){return `<div class="kpi"><strong>${esc(value)}</strong><span>${esc(label)}</span><small>${esc(sub)}</small></div>`;}
+function kpi(value,label,sub,tone='white'){return `<div class="kpi k-${tone}"><strong>${esc(value)}</strong><span>${esc(label)}</span><small>${esc(sub)}</small></div>`;}
 
 function render(){
   const cams=filteredCameras(),groups=counts(cams,c=>cameraGroup(c.status)),get=n=>groups.find(x=>x.label===n)?.value||0;
   const active=state.works.filter(w=>workGroup(w.status)!=='Completado'&&workGroup(w.status)!=='Cancelado');
   const complete=state.works.filter(w=>workGroup(w.status)==='Completado').length;
   const coverage=cams.length?Math.round(get('Operativa')/cams.length*100):0;
-  $('#kpiGrid').innerHTML=[kpi(cams.length,'Cámaras registradas','inventario filtrado'),kpi(get('Operativa'),'Operativas',`${coverage}% de cobertura`),kpi(get('Sin instalar'),'Sin instalar','pendientes de despliegue'),kpi(get('Con problema')+get('Mantenimiento'),'Requieren atención','problema o mantenimiento'),kpi(state.works.length,'Trabajos registrados',`${complete} completados`),kpi(active.length,'Trabajos pendientes',`${overdue(active)} vencidos`)].join('');
-  renderBars('#cameraStatusChart',groups); renderBars('#workStatusChart',counts(state.works,w=>workGroup(w.status))); renderBars('#priorityChart',counts(cams,c=>c.priority)); renderHistory(); renderCameras(cams); renderWorks(active); renderLog();
+  $('#kpiGrid').innerHTML=[kpi(cams.length,'Cámaras registradas','inventario filtrado','white'),kpi(get('Operativa'),'Operativas',`${coverage}% de cobertura`,'blue'),kpi(get('Sin instalar'),'Sin instalar','pendientes de despliegue','lav'),kpi(get('Con problema')+get('Mantenimiento'),'Requieren atención','problema o mantenimiento',(get('Con problema')+get('Mantenimiento'))?'magenta':'white'),kpi(state.works.length,'Trabajos registrados',`${complete} completados`,'white'),kpi(active.length,'Trabajos pendientes',`${overdue(active)} vencidos`,'navy')].join('');
+  $('#heroPct').textContent=(state.cameras.length?Math.round(state.cameras.filter(c=>cameraGroup(c.status)==='Operativa').length/state.cameras.length*100):0)+'%'; renderBars('#cameraStatusChart',groups); renderBars('#workStatusChart',counts(state.works,w=>workGroup(w.status))); renderBars('#priorityChart',counts(cams,c=>c.priority)); renderHistory(); renderCameras(cams); renderWorks(active); renderLog();
 }
 function overdue(works){const today=new Date();today.setHours(0,0,0,0);return works.filter(w=>w.due&&w.due<today).length;}
 function renderBars(selector,data){
@@ -68,7 +68,7 @@ function renderHistory(){
   const el=$('#historyChart'),d=[...state.history].sort((a,b)=>a.date-b.date); if(!d.length){el.innerHTML='<p class="hint">Sin registros históricos válidos.</p>';return;}
   const W=560,H=210,p=32,x=i=>d.length===1?W/2:p+i*(W-p*2)/(d.length-1),y=v=>H-p-(Math.max(0,Math.min(100,v))/100)*(H-p*2);
   const pts=d.map((v,i)=>`${x(i)},${y(v.coverage)}`).join(' ');
-  el.innerHTML=`<svg class="line-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolución de cobertura"><line x1="${p}" x2="${W-p}" y1="${H-p}" y2="${H-p}" stroke="var(--grid)"/><line x1="${p}" x2="${W-p}" y1="${p}" y2="${p}" stroke="var(--grid)"/><polyline points="${pts}" fill="none" stroke="var(--blue)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${d.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v.coverage)}" r="5" fill="var(--blue)"><title>${esc(v.week)}: ${v.coverage}%</title></circle><text x="${x(i)}" y="${H-7}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(v.week)}</text><text x="${x(i)}" y="${y(v.coverage)-10}" text-anchor="middle" font-size="11" font-weight="800" fill="var(--text)">${v.coverage}%</text>`).join('')}</svg>`;
+  el.innerHTML=`<svg class="line-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolución de cobertura"><line x1="${p}" x2="${W-p}" y1="${H-p}" y2="${H-p}" stroke="var(--grid)"/><line x1="${p}" x2="${W-p}" y1="${p}" y2="${p}" stroke="var(--grid)"/><polyline points="${pts}" fill="none" stroke="var(--blue)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>${d.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v.coverage)}" r="5" fill="var(--blue)"><title>${esc(v.week)}: ${v.coverage}%</title></circle><text x="${x(i)}" y="${H-7}" text-anchor="middle" font-size="10" fill="var(--muted)">${String(v.date.getDate()).padStart(2,'0')}/${String(v.date.getMonth()+1).padStart(2,'0')}</text><text x="${x(i)}" y="${y(v.coverage)-10}" text-anchor="middle" font-size="11" font-weight="800" fill="var(--text)">${v.coverage}%</text>`).join('')}</svg>`;
 }
 function renderCameras(cams){
   $('#cameraCount').textContent=`${cams.length} de ${state.cameras.length}`;
