@@ -11,11 +11,12 @@ const COLOR = { operativa:'#159467', sin_instalar:'#767c8a', falta_red:'#e99a05'
 const SOURCES = { gps:'GPS', mapa:'Clic en el mapa', geocodificada:'Desde la dirección', estimada:'Estimada' };
 const FAULTS = ['falla', 'falta_red', 'sin_senal'];
 const CENTER = [-33.09, -61.70];
-const TABS = ['dashboard', 'actas', 'works', 'cameras', 'audit'];
+const TABS = ['dashboard', 'actas', 'works', 'cameras', 'admin', 'audit'];
 const CAT = { falla:'Falla', novedad:'Novedad', intervencion:'Intervención', observacion:'Observación' };
 const CATCOLOR = { falla:'#ff1f4e', novedad:'#1f51ff', intervencion:'#159467', observacion:'#767c8a' };
 const TURNO = { manana:'Mañana', tarde:'Tarde', noche:'Noche' };
 const ICON = {
+  list: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
   eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/></svg>'
 };
@@ -25,7 +26,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':
 const fmtDate = (d) => d ? d.split('-').reverse().join('/') : '—';
 const orNull = (v) => (v === '' || v == null) ? null : v;
 const toNum = (v) => (v === '' || v == null) ? null : Number(v);
-const state = { me:null, cams:[], works:[], logs:[], shifts:[], entries:[], events:[], contracts:new Map(), people:new Map() };
+const state = { me:null, cams:[], works:[], logs:[], shifts:[], entries:[], events:[], updates:[], kpis:[], users:[], rcpts:[], contracts:new Map(), people:new Map() };
 const mapFilter = new Set();
 let bigMap = null, bigLayer = null, miniMap = null, miniMarker = null, mapFitted = false;
 
@@ -53,7 +54,7 @@ async function enter(user) {
   $('#who').textContent = data.name; $('#avatar').textContent = (data.name || '?').trim().charAt(0).toUpperCase();
   ['#tabs', '#userMenu', '#live', '#dashRefresh'].forEach(s => { $(s).hidden = false; });
   $('#loginView').hidden = true; $('#appView').hidden = false;
-  $('#auditTab').hidden = data.role !== 'admin'; $('#verifyAll').hidden = !canCams();
+  $('#auditTab').hidden = data.role !== 'admin'; $('#adminTab').hidden = data.role !== 'admin'; $('#verifyAll').hidden = !canCams();
   $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canWork();
   showTab('dashboard');
   await loadAll();
@@ -102,17 +103,19 @@ function setLive(ok) {
 }
 async function loadAll() {
   $('#errorBanner').hidden = true;
-  const [c, w, l, k, sh, en] = await Promise.all([
+  const [c, w, l, k, sh, en, up, kp] = await Promise.all([
     sb.from('cameras').select('*').order('id'),
     sb.from('work_orders').select('*').order('id', { ascending:false }),
     sb.from('logbook').select('*').order('date', { ascending:false }).order('id', { ascending:false }),
     sb.from('epe_contracts').select('*'),
     sb.from('shifts').select('*').order('shift_date', { ascending:false }).order('id', { ascending:false }).limit(200),
-    sb.from('shift_entries').select('*').order('occurred_at', { ascending:true })
+    sb.from('shift_entries').select('*').order('occurred_at', { ascending:true }),
+    sb.from('work_order_updates').select('*').order('created_at', { ascending:true }),
+    sb.from('kpi_snapshots').select('*').order('date', { ascending:true })
   ]);
-  const err = [c, w, l, k, sh, en].find(r => r.error)?.error;
+  const err = [c, w, l, k, sh, en, up, kp].find(r => r.error)?.error;
   if (err) { setLive(false); $('#errorBanner').textContent = `No se pudieron cargar los datos: ${err.message}`; $('#errorBanner').hidden = false; return; }
-  state.cams = c.data; state.works = w.data; state.logs = l.data; state.shifts = sh.data; state.entries = en.data;
+  state.cams = c.data; state.works = w.data; state.logs = l.data; state.shifts = sh.data; state.entries = en.data; state.updates = up.data; state.kpis = kp.data.map(x => ({ ...x, coverage: Number(x.coverage) }));
   buildEvents();
   state.contracts = new Map(k.data.map(x => [x.id, x]));
   if (state.me.role === 'admin') {
@@ -143,6 +146,7 @@ function showTab(t) {
   closeMenu();
   if (t === 'dashboard') setTimeout(() => bigMap && bigMap.invalidateSize(), 60);
   if (t === 'audit') renderAudit();
+  if (t === 'admin') loadAdmin();
   window.scrollTo({ top: 0 });
 }
 $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
@@ -172,7 +176,7 @@ function renderDashboard() {
     kpi(pending.length, 'Tareas pendientes', `${late.length} vencidas`, late.length ? COLOR.sin_senal : 'var(--blue)')
   ].join('');
 
-  renderBigMap();
+  renderBigMap(); renderHistoryChart();
 
   const last = lastAction(), rank = { alta: 0, media: 1, baja: 2 };
   const att = cams.filter(c => FAULTS.includes(c.status) || c.status === 'mantenimiento').sort((a, b) => rank[a.priority] - rank[b.priority] || a.id - b.id);
@@ -180,7 +184,7 @@ function renderDashboard() {
   $('#dashAtt').innerHTML = att.map(c => { const la = last.get(c.id); return `<button type="button" class="att-item" data-ficha="${c.id}">
     <i class="dot" style="background:${COLOR[c.status]}"></i>
     <span class="att-main"><strong>#${c.id} ${esc(c.name)}</strong><small>${esc(c.address) || 'Sin dirección'}</small></span>
-    <span class="att-side"><b style="color:${COLOR[c.status]}">${STATUS[c.status]}</b><small>${la ? `Novedad ${fmtDate(la.date)}` : 'Sin novedades'}</small></span></button>`; }).join('')
+    <span class="att-side"><b style="color:${COLOR[c.status]}">${STATUS[c.status]}</b><small>Desde ${fmtDate(localDate(c.status_since))}</small></span></button>`; }).join('')
     || '<div class="empty">Todas las cámaras activas están funcionando.</div>';
 
   const stats = (rows) => `<div class="mini-stats">${rows.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('')}</div>`;
@@ -193,7 +197,7 @@ function renderDashboard() {
 
   const sorted = [...pending].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
   $('#dashWorkCount').textContent = `${sorted.length}`;
-  $('#dashWorkBody').innerHTML = sorted.map(w => `<tr><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td><td>${w.progress}%</td><td>${esc(w.assignee) || '—'}</td>
+  $('#dashWorkBody').innerHTML = sorted.map(w => `<tr><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td><td>${w.progress}%</td>
     <td>${fmtDate(w.due_date)}${w.due_date && w.due_date < today ? ' <span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencida</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="7">No hay tareas pendientes.</td></tr>';
 }
 $('#dashRefresh').addEventListener('click', () => loadAll().then(() => toast('Datos actualizados')));
@@ -329,41 +333,85 @@ async function saveCamera(fd, cam) {
 }
 
 /* ---------- tareas de mantenimiento ---------- */
+const PRIOCOLOR = { alta:'#ff1f4e', media:'#e99a05', baja:'#767c8a' };
+const prioBadge = (p) => `<span class="badge" style="background:${PRIOCOLOR[p]}22;color:${PRIOCOLOR[p]}">${PRIORITY[p]}</span>`;
+const isOpenWork = (w) => !['completado', 'cancelado'].includes(w.status);
+const isLate = (w) => isOpenWork(w) && w.due_date && w.due_date < localDate(Date.now());
+const lateBadge = '<span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencida</span>';
+const WFILTERS = { pendientes:['Pendientes', isOpenWork], vencidas:['Vencidas', isLate], curso:['En curso', w => w.status === 'en_proceso'], cerradas:['Cerradas', w => !isOpenWork(w)], todas:['Todas', () => true] };
+const workFilter = { v:'pendientes' };
+const progressBar = (p) => `<div class="progress" title="${p}%"><i style="width:${p}%"></i></div><small>${p}%</small>`;
+
 function renderWorks() {
-  const today = new Date().toLocaleDateString('en-CA');
-  $('#workCount').textContent = `${state.works.length}`;
-  $('#workBody').innerHTML = state.works.map(w => `<tr><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td>
-    <td>${w.progress}%</td><td>${esc(w.assignee) || '—'}</td><td>${fmtDate(w.due_date)}${!['completado', 'cancelado'].includes(w.status) && w.due_date && w.due_date < today ? ' <span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencida</span>' : ''}</td><td class="wrap">${esc(w.notes) || '—'}</td>
-    <td class="act"><button class="btn small icon" data-work="${w.id}" title="${canWork() ? 'Editar' : 'Ver'}" aria-label="${canWork() ? 'Editar' : 'Ver'} tarea ${w.id}">${canWork() ? ICON.edit : ICON.eye}</button></td></tr>`).join('') || '<tr><td colspan="9">No hay tareas cargadas.</td></tr>';
+  $('#workChips').innerHTML = Object.entries(WFILTERS).map(([k, [l, f]]) => `<button type="button" class="chip${workFilter.v === k ? ' on' : ''}" data-wf="${k}" aria-pressed="${workFilter.v === k}">${l} <b>${state.works.filter(f).length}</b></button>`).join('');
+  const rows = state.works.filter(WFILTERS[workFilter.v][1]).sort((a, b) => isOpenWork(a) === isOpenWork(b)
+    ? (isOpenWork(a) ? (a.due_date || '9999').localeCompare(b.due_date || '9999') || b.id - a.id : b.id - a.id) : (isOpenWork(a) ? -1 : 1));
+  $('#workCount').textContent = `${rows.length}`;
+  $('#workBody').innerHTML = rows.map(w => `<tr class="clickrow" data-follow="${w.id}"><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td>
+    <td>${prioBadge(w.priority)}</td><td>${WSTATUS[w.status]}</td><td>${progressBar(w.progress)}</td><td>${esc(w.assignee) || '—'}</td><td>${fmtDate(w.due_date)}${isLate(w) ? ' ' + lateBadge : ''}</td>
+    <td class="act"><span class="row-actions"><button class="btn small icon" data-follow="${w.id}" title="Seguimiento" aria-label="Seguimiento de la tarea ${w.id}">${ICON.list}</button>${canWork() ? `<button class="btn small icon" data-work="${w.id}" title="Editar" aria-label="Editar tarea ${w.id}">${ICON.edit}</button>` : ''}</span></td></tr>`).join('')
+    || '<tr><td colspan="9">No hay tareas en esta vista.</td></tr>';
 }
-$('#workBody').addEventListener('click', (e) => { const b = e.target.closest('[data-work]'); if (b) openWork(state.works.find(w => w.id === +b.dataset.work)); });
+$('#workChips').addEventListener('click', (e) => { const b = e.target.closest('[data-wf]'); if (b) { workFilter.v = b.dataset.wf; renderWorks(); } });
+$('#workBody').addEventListener('click', (e) => {
+  if (e.target.closest('[data-ficha]')) return;
+  let b = e.target.closest('[data-work]'); if (b) return openWork(state.works.find(w => w.id === +b.dataset.work));
+  b = e.target.closest('[data-follow]'); if (b) openFollowup(state.works.find(w => w.id === +b.dataset.follow));
+});
 $('#newWork').addEventListener('click', () => openWork(null));
 const camOptions = (sel) => state.cams.map(c => `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>#${c.id} ${esc(c.name)} — ${esc(c.address || '')}</option>`).join('');
 
 function openWork(w) {
   const isNew = !w, ro = !canWork() ? 'disabled' : '';
-  const x = w || { status:'no_iniciado', progress:0 };
+  const x = w || { status:'no_iniciado', progress:0, priority:'media' };
   const body = `<fieldset ${ro}><div class="grid">
     ${isNew ? field('idAuto', 'N° de tarea', '', 'disabled placeholder="Se asigna solo"') : field('id', 'N° de tarea', x.id, 'type="number" readonly')}
     <label>Cámara<select name="camera_id" required>${camOptions(x.camera_id)}</select></label>
     ${field('task_type', 'Tipo de tarea', x.task_type, 'required list="taskTypes"')}
-    <datalist id="taskTypes"><option>Instalación</option><option>Servicio Técnico</option><option>Mantenimiento</option></datalist>
+    <datalist id="taskTypes"><option>Instalación</option><option>Servicio Técnico</option><option>Mantenimiento</option><option>Limpieza</option></datalist>
+    <label>Prioridad<select name="priority">${options(PRIORITY, x.priority)}</select></label>
     <label>Estado<select name="status">${options(WSTATUS, x.status)}</select></label>
     ${field('progress', 'Avance %', x.progress, 'type="number" min="0" max="100" required')}
     ${field('assignee', 'Responsable', x.assignee)}
     ${field('start_date', 'Fecha de inicio', x.start_date, 'type="date"')}
     ${field('due_date', 'Fecha estimada de fin', x.due_date, 'type="date"')}
     ${field('completed_at', 'Fecha de finalización real', x.completed_at, 'type="date"')}
-    ${area('notes', 'Notas', x.notes, 'wide')}</div></fieldset>`;
-  openDialog(isNew ? 'Nueva tarea' : `Tarea #${x.id}`, body, canWork() ? async (fd) => {
+    ${area('notes', 'Descripción / notas', x.notes, 'wide')}</div></fieldset>`;
+  openDialog(isNew ? 'Nueva tarea' : `Editar tarea #${x.id}`, body, canWork() ? async (fd) => {
     const g = (k) => orNull((fd.get(k) ?? '').toString().trim());
-    const p = { camera_id: +fd.get('camera_id'), task_type: g('task_type'), status: fd.get('status'), progress: +fd.get('progress'), assignee: g('assignee'),
+    const p = { camera_id: +fd.get('camera_id'), task_type: g('task_type'), priority: fd.get('priority'), status: fd.get('status'), progress: +fd.get('progress'), assignee: g('assignee'),
       start_date: g('start_date'), due_date: g('due_date'), completed_at: g('completed_at'), notes: g('notes') };
     const r = w ? await sb.from('work_orders').update(p).eq('id', w.id) : await sb.from('work_orders').insert(p);
     if (r.error) throw r.error; toast('Tarea guardada'); await loadAll();
   } : null, w && canWork() ? async () => {
     const r = await sb.from('work_orders').delete().eq('id', w.id); if (r.error) throw r.error; toast('Tarea eliminada'); await loadAll();
   } : null);
+}
+
+function openFollowup(w) {
+  if (!w) return;
+  const can = canWork(), ups = state.updates.filter(u => u.work_order_id === w.id);
+  const KIND = { avance:'Avance', cierre:'Cierre', reapertura:'Reapertura' };
+  const kv = (k, v, cls = '') => `<div class="kv ${cls}"><dt>${k}</dt><dd>${v ? esc(v) : '—'}</dd></div>`;
+  const tl = ups.map(u => `<article class="event"><time>${new Date(u.created_at).toLocaleDateString('es-AR')}<br>${hhmm(u.created_at)}</time><p><strong>${KIND[u.kind]}${u.progress != null ? ` · ${u.progress}%` : ''}${u.status ? ` · ${WSTATUS[u.status]}` : ''}</strong> <span class="hint" style="margin:0">— ${esc(u.author_name || '')}</span><br>${esc(u.note)}</p></article>`).join('')
+    || '<p class="hint">Todavía no hay avances registrados.</p>';
+  const form = can ? `<h3 class="sub">Registrar avance</h3><fieldset><div class="grid">
+      <label>Estado<select name="status" id="fuStatus">${options(WSTATUS, w.status)}</select></label>
+      ${field('progress', 'Avance %', w.progress, 'type="number" min="0" max="100" id="fuProg"')}
+      ${area('note', 'Nota (qué se hizo o qué falta)', '', 'wide')}
+      <label class="check wide" id="fuCamWrap" hidden><input type="checkbox" name="camok"> Al cerrar la tarea, marcar la cámara como operativa</label></div></fieldset>` : '';
+  const body = `<div class="ficha-head">${prioBadge(w.priority)}<span class="count">${WSTATUS[w.status]}</span>${isLate(w) ? lateBadge : ''}</div>
+    <dl class="kvgrid">${kv('Cámara', camName(w.camera_id))}${kv('Tarea', w.task_type)}${kv('Responsable', w.assignee)}${kv('Inicio', w.start_date && fmtDate(w.start_date))}${kv('Vence', w.due_date && fmtDate(w.due_date))}${kv('Cierre real', w.completed_at && fmtDate(w.completed_at))}${kv('Descripción', w.notes, 'wide')}</dl>
+    ${form}<h3 class="sub">Seguimiento</h3><div class="timeline">${tl}</div>`;
+  openDialog(`Tarea #${w.id}`, body, can ? async (fd) => {
+    const st = fd.get('status'), closing = st === 'completado' && w.status !== 'completado';
+    const r = await sb.rpc('register_work_update', { p_work: w.id, p_note: (fd.get('note') || '').toString(), p_progress: +fd.get('progress') || 0, p_status: st, p_camera_ok: closing && !!fd.get('camok') });
+    if (r.error) throw r.error; toast(closing ? 'Tarea cerrada' : 'Avance registrado'); await loadAll();
+  } : null, null, () => {
+    const s = $('#fuStatus'); if (!s) return;
+    const sync = () => { $('#fuCamWrap').hidden = s.value !== 'completado' || w.status === 'completado'; if (s.value === 'completado') $('#fuProg').value = 100; };
+    s.addEventListener('change', sync); sync();
+  }, 'Registrar');
 }
 
 /* ---------- actas de turno ---------- */
@@ -536,7 +584,7 @@ function openDialog(title, body, onSave, onDelete, afterOpen, saveLabel) {
   const close = () => { dispose(); dlg.close(); };
   $('#dlgCancel').onclick = close;
   if (onDelete) $('#dlgDelete').onclick = async () => { if (!confirm('¿Eliminar definitivamente? Queda registrado en el historial de cambios.')) return; try { await onDelete(); close(); } catch (e) { msg.textContent = e.message; } };
-  const human = (m = '') => /shifts_shift_date/.test(m) ? 'Ya existe un acta para esa fecha y turno.' : /type inet/.test(m) ? 'La IP no es válida (ejemplo: 192.168.1.35).' : /duplicate key.*ip/.test(m) ? 'Esa IP ya está asignada a otra cámara.' : /epe_contract/.test(m) && /duplicate/.test(m) ? 'Ese contrato EPE ya está asignado a otra cámara.' : /duplicate key/.test(m) ? 'Ya existe un registro con ese número.' : m;
+  const human = (m = '') => /alert_recipients_email/.test(m) ? 'Ese correo ya está cargado.' : /shifts_shift_date/.test(m) ? 'Ya existe un acta para esa fecha y turno.' : /type inet/.test(m) ? 'La IP no es válida (ejemplo: 192.168.1.35).' : /duplicate key.*ip/.test(m) ? 'Esa IP ya está asignada a otra cámara.' : /epe_contract/.test(m) && /duplicate/.test(m) ? 'Ese contrato EPE ya está asignado a otra cámara.' : /duplicate key/.test(m) ? 'Ya existe un registro con ese número.' : m;
   form.onsubmit = async (e) => { e.preventDefault(); msg.textContent = ''; try { await onSave(new FormData(form)); close(); } catch (err) { msg.textContent = human(err.message || String(err)); } };
   dlg.oncancel = dispose;
   dlg.showModal();
@@ -630,6 +678,107 @@ async function renderAudit() {
   $('#auditBody').innerHTML = data.map(r => `<tr><td>${new Date(r.at).toLocaleString('es-AR')}</td><td>${esc(r.table_name)}</td><td>${esc(r.row_id)}</td>
     <td>${esc(r.action)}</td><td>${esc(state.people.get(r.user_id) || (r.user_id ? r.user_id.slice(0, 8) : 'sistema'))}</td><td class="diff">${diff(r)}</td></tr>`).join('') || '<tr><td colspan="6">Sin cambios registrados.</td></tr>';
 }
+
+/* ---------- evolución de cobertura ---------- */
+function renderHistoryChart() {
+  const d = state.kpis, el = $('#dashHistory');
+  if (!d.length) { el.innerHTML = '<p class="hint">Todavía no hay registros.</p>'; return; }
+  const W = 480, H = 240, p = 38, x = (i) => d.length === 1 ? W / 2 : p + 22 + i * (W - p * 2 - 44) / (d.length - 1), y = (v) => H - p - (Math.max(0, Math.min(100, v)) / 100) * (H - p * 2);
+  const pts = d.map((v, i) => `${x(i)},${y(v.coverage)}`).join(' ');
+  el.innerHTML = `<svg class="line-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolución de la cobertura">
+    ${[0, 50, 100].map(g => `<line x1="${p}" x2="${W - p}" y1="${y(g)}" y2="${y(g)}" stroke="var(--grid)"/><text x="${p - 6}" y="${y(g) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${g}%</text>`).join('')}
+    <polyline points="${pts}" fill="none" stroke="var(--blue)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${d.map((v, i) => `<circle cx="${x(i)}" cy="${y(v.coverage)}" r="5" fill="var(--blue)"><title>${esc(v.week_label || '')}: ${v.coverage}%</title></circle>
+      <text x="${x(i)}" y="${y(v.coverage) - 10}" text-anchor="middle" font-size="11" font-weight="800" fill="var(--text)">${v.coverage}%</text>
+      <text x="${x(i)}" y="${H - 12}" text-anchor="middle" font-size="10" fill="var(--muted)">${fmtDate(v.date).slice(0, 5)}</text>`).join('')}</svg>`;
+}
+
+/* ---------- exportar a planilla (CSV) ---------- */
+function downloadCsv(name, rows) {
+  const cell = (v) => { let s = String(v ?? ''); if (/^[=+@\t]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+  const csv = '﻿' + rows.map(r => r.map(cell).join(';')).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `${name}-${localDate(Date.now())}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  toast('Archivo descargado');
+}
+$('#exportCams').addEventListener('click', () => downloadCsv('camaras', [
+  ['ID', 'Nombre', 'Modelo', 'Tipo', 'Dirección', 'Zona', 'Estado', 'Estado desde', 'Prioridad', 'IP', 'MAC', 'N° serie', 'Contrato EPE', 'Enlace', 'Energía', 'Latitud', 'Longitud', 'Ubicación verificada', 'Última revisión', 'Función', 'Observaciones', 'Activa'],
+  ...state.cams.map(c => [c.id, c.name, c.model, c.camera_type, c.address, c.zone, STATUS[c.status], fmtDate(localDate(c.status_since)), PRIORITY[c.priority], c.ip, c.mac, c.serial, state.contracts.get(c.epe_contract_id)?.supply_number, c.link_type, c.power_source, c.lat, c.lng, c.coords_verified ? 'Sí' : 'No', fmtDate(c.last_review_at), c.function, c.notes, c.active ? 'Sí' : 'No'])]));
+$('#exportWorks').addEventListener('click', () => downloadCsv('tareas', [
+  ['N°', 'Cámara', 'Tarea', 'Prioridad', 'Estado', 'Avance %', 'Responsable', 'Inicio', 'Vence', 'Cierre real', 'Notas'],
+  ...state.works.map(w => [w.id, camName(w.camera_id), w.task_type, PRIORITY[w.priority], WSTATUS[w.status], w.progress, w.assignee, fmtDate(w.start_date), fmtDate(w.due_date), fmtDate(w.completed_at), w.notes])]));
+$('#exportActas').addEventListener('click', () => downloadCsv('actas', [
+  ['Acta N°', 'Fecha', 'Turno', 'Operador', 'Estado', 'Hora', 'Tipo', 'Cámaras', 'Descripción', 'Acción tomada', 'Observaciones de entrega'],
+  ...state.shifts.flatMap(s => { const es = entriesOf(s.id); const base = [s.acta_no ?? '', fmtDate(s.shift_date), TURNO[s.shift_type], s.operator_name, s.status === 'abierta' ? 'Abierta' : 'Cerrada'];
+    return es.length ? es.map(e => [...base, hhmm(e.occurred_at), CAT[e.category], e.camera_ids.map(i => camName(i)).join(' | '), e.description, e.action_taken, s.handover_notes]) : [[...base, '', '', '', '', '', s.handover_notes]]; })]));
+
+/* ---------- usuarios y avisos ---------- */
+const ROLE = { admin:'Administrador', tecnico:'Operador', lector:'Solo lectura' };
+async function callUsers(body) {
+  const r = await sb.functions.invoke('admin-users', { body });
+  if (r.error) { let m = r.error.message; try { const j = await r.error.context.json(); m = j.error || m; } catch (e) {} throw new Error(m); }
+  if (r.data?.error) throw new Error(r.data.error);
+  return r.data;
+}
+async function loadAdmin() {
+  const [u, r] = await Promise.allSettled([callUsers({ action: 'list' }), sb.from('alert_recipients').select('*').order('id')]);
+  if (u.status === 'fulfilled') state.users = u.value.users; else { state.users = []; $('#userBody').innerHTML = `<tr><td colspan="6">No se pudo cargar la lista: ${esc(u.reason.message)}</td></tr>`; }
+  state.rcpts = r.status === 'fulfilled' && !r.value.error ? r.value.data : [];
+  if (u.status === 'fulfilled') renderUsers(); renderRcpts();
+}
+function renderUsers() {
+  $('#userBody').innerHTML = state.users.map(u => `<tr><td><strong>${esc(u.name)}</strong></td><td>${esc(u.email)}</td><td>${ROLE[u.role]}</td>
+    <td>${u.active ? '<span class="badge" style="background:#15946722;color:#159467">Activo</span>' : '<span class="badge" style="background:#767c8a22;color:#767c8a">Desactivado</span>'}</td>
+    <td>${u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('es-AR', { hour12: false }) : 'Nunca'}</td>
+    <td class="act"><span class="row-actions"><button class="btn small" data-uedit="${u.user_id}">Editar</button><button class="btn small" data-ureset="${u.user_id}">Nueva clave</button></span></td></tr>`).join('') || '<tr><td colspan="6">Sin usuarios.</td></tr>';
+}
+function renderRcpts() {
+  $('#rcptBody').innerHTML = state.rcpts.map(r => `<tr><td>${esc(r.email)}</td><td>${esc(r.name) || '—'}</td>
+    <td><button class="btn small" data-rtoggle="${r.id}">${r.active ? 'Activo — pausar' : 'Pausado — activar'}</button></td>
+    <td class="act"><button class="btn small danger" data-rdel="${r.id}">Quitar</button></td></tr>`).join('') || '<tr><td colspan="4">Todavía no hay destinatarios: no se enviará ningún aviso.</td></tr>';
+}
+$('#newUser').addEventListener('click', () => openDialog('Nuevo usuario', `<fieldset><div class="grid">
+    ${field('name', 'Nombre y apellido', '', 'required')}${field('email', 'Correo', '', 'type="email" required')}
+    <label>Rol<select name="role">${options(ROLE, 'tecnico')}</select></label>${field('organization', 'Organización', 'Municipalidad')}</div></fieldset>
+    <p class="hint"><b>Operador:</b> carga actas y tareas. <b>Solo lectura:</b> ve todo sin modificar. <b>Administrador:</b> todo.<br>Se genera una contraseña temporal y se envía por mail a la persona, que debe cambiarla al ingresar.</p>`, async (fd) => {
+  await callUsers({ action: 'create', name: fd.get('name').toString().trim(), email: fd.get('email').toString().trim(), role: fd.get('role'), organization: fd.get('organization').toString().trim() });
+  toast('Usuario creado y acceso enviado por mail'); await loadAdmin();
+}, null, null, 'Crear y enviar acceso'));
+$('#userBody').addEventListener('click', async (e) => {
+  const ed = e.target.closest('[data-uedit]'), rs = e.target.closest('[data-ureset]');
+  if (ed) { const u = state.users.find(x => x.user_id === ed.dataset.uedit);
+    openDialog(`Editar a ${u.name}`, `<fieldset><div class="grid">${field('name', 'Nombre', u.name, 'required')}<label>Rol<select name="role">${options(ROLE, u.role)}</select></label>
+      <label class="check wide"><input type="checkbox" name="active" ${u.active ? 'checked' : ''}> Puede ingresar al panel</label></div></fieldset><p class="hint">${esc(u.email)}</p>`, async (fd) => {
+      await callUsers({ action: 'update', user_id: u.user_id, name: fd.get('name').toString().trim(), role: fd.get('role'), active: fd.get('active') === 'on' });
+      toast('Usuario actualizado'); await loadAdmin(); }); }
+  if (rs) { const u = state.users.find(x => x.user_id === rs.dataset.ureset);
+    if (!confirm(`¿Generar una contraseña nueva para ${u.name} y enviarla a ${u.email}?`)) return;
+    try { await callUsers({ action: 'reset', user_id: u.user_id }); toast('Contraseña nueva enviada por mail'); } catch (err) { fail(err); } }
+});
+$('#newRcpt').addEventListener('click', () => openDialog('Agregar destinatario', `<fieldset><div class="grid">${field('email', 'Correo', '', 'type="email" required')}${field('name', 'Nombre (opcional)', '')}</div></fieldset>`, async (fd) => {
+  const r = await sb.from('alert_recipients').insert({ email: fd.get('email').toString().trim(), name: orNull(fd.get('name').toString().trim()) });
+  if (r.error) throw r.error; toast('Destinatario agregado'); await loadAdmin();
+}));
+$('#rcptBody').addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-rtoggle]'), d = e.target.closest('[data-rdel]');
+  if (t) { const r0 = state.rcpts.find(x => x.id === +t.dataset.rtoggle); const r = await sb.from('alert_recipients').update({ active: !r0.active }).eq('id', r0.id); if (r.error) return fail(r.error); await loadAdmin(); }
+  if (d) { const r0 = state.rcpts.find(x => x.id === +d.dataset.rdel); if (!confirm(`¿Quitar a ${r0.email} de los avisos?`)) return; const r = await sb.from('alert_recipients').delete().eq('id', r0.id); if (r.error) return fail(r.error); toast('Destinatario quitado'); await loadAdmin(); }
+});
+$('#adminTab').addEventListener('click', () => showTab('admin'));
+
+/* ---------- modo pantalla ---------- */
+let kiosk = false, kioskTimer = null;
+const kioskTick = () => { const t = new Date().toLocaleString('es-AR', { weekday: 'long', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false }); $('#kioskClock').textContent = t.charAt(0).toUpperCase() + t.slice(1); };
+function setKiosk(on) {
+  kiosk = on; document.body.classList.toggle('kiosk', on); $('#kioskBar').hidden = !on;
+  clearInterval(kioskTimer);
+  if (on) { showTab('dashboard'); kioskTick(); kioskTimer = setInterval(kioskTick, 15000); if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); }
+  else if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+  setTimeout(() => { if (bigMap) { bigMap.invalidateSize(); mapFitted = false; renderBigMap(true); } }, 350);
+}
+$('#kioskBtn').addEventListener('click', () => { closeMenu(); setKiosk(true); });
+$('#kioskExit').addEventListener('click', () => setKiosk(false));
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && kiosk) setKiosk(false); });
 
 /* ---------- tema e inicio ---------- */
 $('#themeToggle').addEventListener('click', () => {

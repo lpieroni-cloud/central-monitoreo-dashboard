@@ -214,3 +214,19 @@ th.act,td.act{position:sticky;right:0;z-index:2;background:var(--surface);box-sh
 @media(max-width:1180px){.home-grid{height:auto}.topbar{position:static}}
 .topbar{padding-inline:max(20px,calc((100vw - 1360px)/2 + 24px))}
 @media(max-width:760px){.topbar{padding-inline:12px}}
+
+/* Seguimiento, evolución y modo pantalla */
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:16px}
+.toolbar .chips{justify-content:flex-start}
+.clickrow{cursor:pointer}
+.clickrow:hover td{background:color-mix(in srgb,var(--blue) 6%,var(--surface))}
+.line-chart{width:100%;height:auto;display:block}
+.kiosk-bar{display:flex;align-items:center;gap:16px;padding:10px 24px;background:var(--surface);border-bottom:3px solid var(--blue);box-shadow:var(--shadow)}
+.kiosk-bar img{height:44px;width:auto}
+.kiosk-bar strong{font-size:1.2rem;text-transform:uppercase}
+.kiosk-bar .live{text-transform:none}
+body.kiosk .topbar,body.kiosk .trio,body.kiosk .split{display:none!important}
+body.kiosk.admin main{max-width:none;padding:16px 24px}
+body.kiosk .home-grid{height:calc(100vh - 300px);min-height:380px}
+body.kiosk .admin .kpi strong,body.kiosk .kpi strong{font-size:2.6rem}
+@media(max-width:1180px){.split{grid-template-columns:1fr}}

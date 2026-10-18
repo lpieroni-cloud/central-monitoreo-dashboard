@@ -35,6 +35,8 @@
         <button class="btn user" id="userBtn" aria-haspopup="menu" aria-expanded="false"><span class="avatar" id="avatar">·</span><span id="who"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
         <div class="menu" id="menu" role="menu" hidden>
           <button role="menuitem" id="pwdBtn">Cambiar contraseña</button>
+          <button role="menuitem" id="kioskBtn">Modo pantalla</button>
+          <button role="menuitem" id="adminTab" hidden>Usuarios y avisos</button>
           <button role="menuitem" id="auditTab" hidden>Historial de cambios</button>
           <button role="menuitem" id="verifyAll" hidden>Verificar ubicaciones</button>
           <hr>
@@ -43,6 +45,14 @@
       </div>
     </div>
   </header>
+
+  <div class="kiosk-bar" id="kioskBar" hidden>
+    <img src="/assets/logo-san-jose-de-la-esquina.svg" alt="Municipalidad de San José de la Esquina">
+    <strong>Central de Monitoreo</strong>
+    <span class="grow"></span>
+    <span class="live" id="kioskLive"><i class="dot"></i><span id="kioskClock"></span></span>
+    <button class="btn" id="kioskExit">Salir del modo pantalla</button>
+  </div>
 
   <main>
     <section class="card login" id="loginView" hidden>
@@ -84,10 +94,13 @@
           <article class="card"><header class="card-head"><div><h2>Últimas novedades</h2><p class="hint">Intervenciones recientes</p></div></header><div id="dashLog" class="timeline"></div></article>
         </section>
 
+        <section class="split">
+        <article class="card"><header class="card-head"><div><h2>Evolución de cobertura</h2><p class="hint">Registro semanal automático</p></div></header><div id="dashHistory"></div></article>
         <article class="card">
           <header class="card-head"><div><h2>Tareas pendientes</h2><p class="hint">Ordenadas por fecha de vencimiento</p></div><span class="count" id="dashWorkCount"></span></header>
-          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th></tr></thead><tbody id="dashWorkBody"></tbody></table></div>
+          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Vence</th></tr></thead><tbody id="dashWorkBody"></tbody></table></div>
         </article>
+        </section>
       </section>
 
       <section id="tab-actas" hidden>
@@ -103,15 +116,16 @@
           <div class="toolbar">
             <label>Buscar <input id="actaSearch" type="search" placeholder="Operador, fecha o N° de acta"></label>
             <label>Turno <select id="actaTurno"><option value="all">Todos</option><option value="manana">Mañana</option><option value="tarde">Tarde</option><option value="noche">Noche</option></select></label>
+            <div class="grow"></div><button class="btn" id="exportActas">Exportar CSV</button>
           </div>
           <div class="table-scroll"><table><thead><tr><th>Acta N°</th><th>Fecha</th><th>Turno</th><th>Operador</th><th>Novedades</th><th>Estado</th><th class="act"></th></tr></thead><tbody id="actaBody"></tbody></table></div>
         </article>
       </section>
 
       <section id="tab-works" hidden>
-        <div class="toolbar"><div class="grow"></div><button class="btn primary" id="newWork">Nueva tarea</button></div>
-        <article class="card"><header class="card-head"><h2>Tareas de mantenimiento</h2><span class="count" id="workCount"></span></header>
-          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th><th>Notas</th><th class="act"></th></tr></thead><tbody id="workBody"></tbody></table></div>
+        <div class="toolbar"><div class="chips" id="workChips" aria-label="Filtrar tareas"></div><div class="grow"></div><button class="btn" id="exportWorks">Exportar CSV</button><button class="btn primary" id="newWork">Nueva tarea</button></div>
+        <article class="card"><header class="card-head"><div><h2>Tareas de mantenimiento</h2><p class="hint">Tocá una tarea para ver su seguimiento y registrar avances</p></div><span class="count" id="workCount"></span></header>
+          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Prioridad</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th><th class="act"></th></tr></thead><tbody id="workBody"></tbody></table></div>
         </article>
       </section>
 
@@ -124,10 +138,22 @@
           <label>Buscar <input id="camSearch" type="search" placeholder="Nombre, dirección, IP"></label>
           <label>Estado <select id="camStatus"><option value="all">Todos</option></select></label>
           <div class="grow"></div>
+          <button class="btn" id="exportCams">Exportar CSV</button>
           <button class="btn primary" id="newCamera">Nueva cámara</button>
         </div>
         <article class="card"><header class="card-head"><h2>Inventario</h2><span class="count" id="camCount"></span></header>
           <div class="table-scroll"><table><thead><tr><th>ID</th><th>Nombre</th><th>Dirección</th><th>Estado</th><th>Prioridad</th><th>IP</th><th>Contrato EPE</th><th>Ubicación</th><th>Última novedad</th><th class="act"></th></tr></thead><tbody id="camBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="tab-admin" hidden>
+        <article class="card">
+          <header class="card-head"><div><h2>Usuarios</h2><p class="hint">Quién puede ingresar al panel y con qué permisos</p></div><button class="btn primary" id="newUser">Nuevo usuario</button></header>
+          <div class="table-scroll"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Último ingreso</th><th class="act"></th></tr></thead><tbody id="userBody"></tbody></table></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>Avisos por mail</h2><p class="hint">Reciben las fallas de cámaras, tareas nuevas y vencidas, y las actas cerradas</p></div><button class="btn primary" id="newRcpt">Agregar destinatario</button></header>
+          <div class="table-scroll"><table><thead><tr><th>Correo</th><th>Nombre</th><th>Estado</th><th class="act"></th></tr></thead><tbody id="rcptBody"></tbody></table></div>
         </article>
       </section>
 
