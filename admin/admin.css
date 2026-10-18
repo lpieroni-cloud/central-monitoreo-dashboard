@@ -162,3 +162,37 @@ h3.sub{margin:20px 0 8px;font-size:.82rem;text-transform:uppercase;letter-spacin
   .home-grid .map{height:360px}
   .admin .bar-row{grid-template-columns:110px 1fr 32px}
 }
+
+/* Actas de turno */
+.shift{border:1px solid var(--grid);border-radius:14px;padding:16px}
+.shift+.shift{margin-top:12px}
+.shift-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.shift-empty{text-align:center;padding:28px 12px}
+.entries{display:flex;flex-direction:column}
+.entry{display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--grid)}
+.entry time{font-weight:900;color:var(--secondary)}
+.entry-main p{margin:6px 0 0}
+.entry-cams{display:inline-flex;flex-wrap:wrap;gap:6px;vertical-align:middle}
+.chip.small{height:26px;padding:0 10px;font-size:.75rem}
+.checklist{max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:6px 10px;display:flex;flex-direction:column;gap:2px;margin-top:4px}
+.cam-opt{padding:5px 0;text-transform:none;font-weight:600;color:var(--text);font-size:.9rem}
+.acta{color:var(--text)}
+.acta-head{display:flex;align-items:center;gap:16px;padding-bottom:14px;margin-bottom:14px;border-bottom:3px solid var(--blue)}
+.acta-head img{height:46px;width:auto}
+.acta-head h2{margin:0;font-size:1.15rem}
+.acta-head p{margin:2px 0 0;color:var(--secondary);font-weight:700;font-size:.85rem}
+.firmas{display:grid;grid-template-columns:1fr 1fr;gap:48px;margin:48px 0 16px;text-align:center}
+.firmas div{border-top:1px solid var(--text);padding-top:6px;font-weight:700}
+#printArea{display:none}
+@media print{
+  @page{margin:14mm}
+  body.admin.printing{background:#fff!important}
+  body.admin.printing>*:not(#printArea){display:none!important}
+  body.admin.printing #printArea{display:block}
+  #printArea .acta{--text:#10131a;--secondary:#4a4f5c;--grid:#d4d8e0;--surface:#fff;--blue:#1f51ff;color:#10131a;background:#fff;font-size:12px}
+  #printArea table{font-size:11px;width:100%}
+  #printArea th,#printArea td{white-space:normal;padding:6px 8px;border-bottom:1px solid #d4d8e0}
+  #printArea .table-scroll{overflow:visible;max-height:none}
+  #printArea tr{page-break-inside:avoid}
+}
+@media(max-width:760px){.entry{grid-template-columns:1fr}.firmas{gap:24px}}

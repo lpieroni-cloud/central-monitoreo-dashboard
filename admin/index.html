@@ -22,7 +22,7 @@
 
     <nav class="nav" id="tabs" aria-label="Secciones" hidden>
       <button data-tab="dashboard" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Inicio</span></button>
-      <button data-tab="log"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3"/></svg><span>Novedades</span></button>
+      <button data-tab="actas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3"/></svg><span>Actas</span></button>
       <button data-tab="works"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg><span>Mantenimiento</span></button>
       <button data-tab="cameras"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h13v10H3zM16 10l5-3v10l-5-3"/></svg><span>Cámaras</span></button>
     </nav>
@@ -90,10 +90,21 @@
         </article>
       </section>
 
-      <section id="tab-log" hidden>
-        <div class="toolbar"><div class="grow"></div><button class="btn primary" id="newLog">Registrar novedad</button></div>
-        <article class="card"><header class="card-head"><h2>Novedades registradas</h2><span class="count" id="logCount"></span></header>
-          <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Cámara</th><th>Responsable</th><th>Tipo</th><th>Descripción</th><th>Resultado</th><th>Próxima acción</th><th class="act"></th></tr></thead><tbody id="logBody"></tbody></table></div>
+      <section id="tab-actas" hidden>
+        <article class="card">
+          <header class="card-head"><div><h2>Turno actual</h2><p class="hint" id="shiftHint">Acta abierta del turno en curso</p></div></header>
+          <div id="shiftBody"></div>
+        </article>
+        <article class="card">
+          <header class="card-head">
+            <div><h2>Historial de actas</h2><p class="hint">Cada acta cerrada queda guardada como registro y se puede volver a imprimir</p></div>
+            <span class="count" id="actaCount"></span>
+          </header>
+          <div class="toolbar">
+            <label>Buscar <input id="actaSearch" type="search" placeholder="Operador, fecha o N° de acta"></label>
+            <label>Turno <select id="actaTurno"><option value="all">Todos</option><option value="manana">Mañana</option><option value="tarde">Tarde</option><option value="noche">Noche</option></select></label>
+          </div>
+          <div class="table-scroll"><table><thead><tr><th>Acta N°</th><th>Fecha</th><th>Turno</th><th>Operador</th><th>Novedades</th><th>Estado</th><th class="act"></th></tr></thead><tbody id="actaBody"></tbody></table></div>
         </article>
       </section>
 
@@ -128,6 +139,7 @@
     </div>
   </main>
 
+  <div id="printArea" aria-hidden="true"></div>
   <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
   <div class="toast" id="toast" role="status" hidden></div>
 
