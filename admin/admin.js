@@ -212,10 +212,10 @@ function renderCams() {
   $('#camCount').textContent = `${rows.length} de ${state.cams.length}`;
   $('#camBody').innerHTML = rows.map(c => {
     const la = last.get(c.id), ct = state.contracts.get(c.epe_contract_id);
-    return `<tr${c.active ? '' : ' style="opacity:.5"'}><td>${c.id}</td><td><button type="button" class="linkish" data-ficha="${c.id}">${esc(c.name)}</button></td><td>${esc(c.address) || '—'}</td>
+    return `<tr${c.active ? '' : ' style="opacity:.5"'}><td>${c.id}</td><td><button type="button" class="linkish" data-ficha="${c.id}">${esc(c.name)}</button></td><td class="wrap">${esc(c.address) || '—'}</td>
       <td>${statusBadge(c.status)}</td><td>${PRIORITY[c.priority]}</td><td>${esc(c.ip) || '—'}</td><td>${esc(ct?.supply_number) || '—'}</td>
       <td>${c.lat != null ? (c.coords_verified ? '✔ Verificada' : '● Sin verificar') : '—'}</td>
-      <td>${la ? `${fmtDate(la.date)} · ${esc(la.description).slice(0, 40)}` : '—'}</td>
+      <td class="wrap">${la ? `${fmtDate(la.date)} · ${esc(la.description).slice(0, 60)}` : '—'}</td>
       <td class="act"><span class="row-actions"><button class="btn small icon" data-ficha="${c.id}" title="Ver ficha" aria-label="Ver ficha de ${esc(c.name)}">${ICON.eye}</button>${canCams() ? `<button class="btn small icon" data-cam="${c.id}" title="Editar" aria-label="Editar ${esc(c.name)}">${ICON.edit}</button>` : ''}</span></td></tr>`;
   }).join('') || '<tr><td colspan="10">Sin resultados.</td></tr>';
 

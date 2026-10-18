@@ -196,3 +196,21 @@ h3.sub{margin:20px 0 8px;font-size:.82rem;text-transform:uppercase;letter-spacin
   #printArea tr{page-break-inside:avoid}
 }
 @media(max-width:760px){.entry{grid-template-columns:1fr}.firmas{gap:24px}}
+
+/* Ajuste a pantallas de 1180–1400px y escalado de Windows */
+.home-grid{height:clamp(500px,calc(100vh - 280px),660px)}
+th.act,td.act{position:sticky;right:0;z-index:2;background:var(--surface);box-shadow:-8px 0 8px -8px rgba(0,0,0,.18)}
+.admin tbody tr:nth-child(even) td.act{background:color-mix(in srgb,var(--page) 55%,var(--surface))}
+.admin td.wrap{min-width:150px;max-width:260px}
+@media(max-width:1400px){
+  .topbar{gap:12px;padding:10px 16px}
+  .topbar .brand h1{display:none}
+  .nav{margin-left:0;gap:2px}
+  .nav button{padding:0 10px;gap:6px}
+  .live{padding:0 12px}
+  .admin main{padding:20px 16px}
+  .admin th,.admin td{padding:10px 10px}
+}
+@media(max-width:1180px){.home-grid{height:auto}.topbar{position:static}}
+.topbar{padding-inline:max(20px,calc((100vw - 1360px)/2 + 24px))}
+@media(max-width:760px){.topbar{padding-inline:12px}}
