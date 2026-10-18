@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>Panel de edición — Central de Monitoreo</title>
+  <title>Central de Monitoreo — Panel</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
@@ -12,17 +12,34 @@
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/admin/admin.css">
 </head>
-<body>
-  <header class="app-header">
+<body class="admin">
+  <header class="topbar">
     <div class="brand">
       <img src="/assets/logo-san-jose-de-la-esquina.svg" alt="Municipalidad de San José de la Esquina">
-      <div><h1>Panel de edición</h1><p>Central de Monitoreo</p></div>
+      <div><h1>Central de Monitoreo</h1><p>San José de la Esquina</p></div>
     </div>
-    <div class="header-actions">
-      <span class="status" id="who" hidden></span>
-      <button class="btn" id="themeToggle" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
-      <button class="btn" id="pwdBtn" hidden>Cambiar contraseña</button>
-      <button class="btn" id="logoutBtn" hidden>Salir</button>
+
+    <nav class="nav" id="tabs" aria-label="Secciones" hidden>
+      <button data-tab="dashboard" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Inicio</span></button>
+      <button data-tab="log"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3"/></svg><span>Novedades</span></button>
+      <button data-tab="works"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg><span>Mantenimiento</span></button>
+      <button data-tab="cameras"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h13v10H3zM16 10l5-3v10l-5-3"/></svg><span>Cámaras</span></button>
+    </nav>
+
+    <div class="session" id="session">
+      <span class="live" id="live" hidden><i class="dot"></i><span id="liveText">Cargando…</span></span>
+      <button class="btn icon" id="dashRefresh" title="Actualizar datos" aria-label="Actualizar datos" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button>
+      <button class="btn icon" id="themeToggle" title="Cambiar tema" aria-label="Cambiar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg></button>
+      <div class="usermenu" id="userMenu" hidden>
+        <button class="btn user" id="userBtn" aria-haspopup="menu" aria-expanded="false"><span class="avatar" id="avatar">·</span><span id="who"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+        <div class="menu" id="menu" role="menu" hidden>
+          <button role="menuitem" id="pwdBtn">Cambiar contraseña</button>
+          <button role="menuitem" id="auditTab" hidden>Historial de cambios</button>
+          <button role="menuitem" id="verifyAll" hidden>Verificar ubicaciones</button>
+          <hr>
+          <button role="menuitem" id="logoutBtn">Salir</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -38,68 +55,74 @@
     </section>
 
     <div id="appView" hidden>
-      <nav class="tabs" id="tabs">
-        <button data-tab="dashboard" class="active">Dashboard</button>
-        <button data-tab="cameras">Cámaras</button>
-        <button data-tab="works">Trabajos</button>
-        <button data-tab="log">Última acción</button>
-        <button data-tab="map">Mapa</button>
-        <button data-tab="audit" id="auditTab" hidden>Historial de cambios</button>
-      </nav>
       <div class="error-banner" id="errorBanner" hidden></div>
 
       <section id="tab-dashboard">
-        <div class="section-heading dash-head"><p class="hint" id="dashUpdated" style="margin:0"></p><button class="btn small" id="dashRefresh">Actualizar</button></div>
-        <section class="kpi-grid" id="dashKpis" aria-label="Indicadores principales"></section>
-        <section class="charts-grid">
-          <article class="card"><h2>Estado de las cámaras</h2><p class="hint">Todas las cámaras activas</p><div id="dashStatus"></div></article>
-          <article class="card"><h2>Trabajos por estado</h2><p class="hint">Plan de tareas actual</p><div id="dashWorks"></div></article>
-          <article class="card"><h2>Cámaras por prioridad</h2><p class="hint">Cuántas están operativas en cada nivel</p><div id="dashPriority"></div></article>
-          <article class="card"><h2>Calidad de datos</h2><p class="hint">Información cargada en el sistema</p><div id="dashQuality"></div></article>
+        <section class="kpis" id="dashKpis" aria-label="Indicadores principales"></section>
+
+        <section class="home-grid">
+          <article class="card map-card">
+            <header class="card-head">
+              <div><h2>Mapa de cámaras</h2><p class="hint" id="mapCount"></p></div>
+              <div class="chips" id="mapChips" aria-label="Filtrar por estado"></div>
+            </header>
+            <div id="bigMap" class="map"></div>
+          </article>
+          <article class="card att-card">
+            <header class="card-head">
+              <div><h2>Requieren atención</h2><p class="hint">Con falla o en mantenimiento</p></div>
+              <span class="count" id="dashAttCount"></span>
+            </header>
+            <div class="att-list" id="dashAtt"></div>
+          </article>
         </section>
-        <div class="card panel"><div class="section-heading"><div><h2>Requieren atención</h2><p class="hint">Cámaras con falla, sin red, sin señal o en mantenimiento</p></div><span class="count" id="dashAttCount"></span></div>
-          <div class="table-scroll"><table><thead><tr><th>ID</th><th>Nombre</th><th>Dirección</th><th>Estado</th><th>Prioridad</th><th>Última acción</th></tr></thead><tbody id="dashAttBody"></tbody></table></div></div>
-        <div class="card panel"><div class="section-heading"><div><h2>Trabajos pendientes</h2><p class="hint">Ordenados por fecha de vencimiento</p></div><span class="count" id="dashWorkCount"></span></div>
-          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th></tr></thead><tbody id="dashWorkBody"></tbody></table></div></div>
-        <div class="card panel"><h2>Últimas acciones</h2><p class="hint">Última intervención registrada</p><div id="dashLog" class="timeline"></div></div>
-      </section>
 
-      <section id="tab-cameras" hidden>
-        <div class="toolbar">
-          <label>Buscar <input id="camSearch" type="search" placeholder="Nombre, dirección, IP"></label>
-          <label>Estado <select id="camStatus"><option value="all">Todos</option></select></label>
-          <button class="btn primary" id="newCamera">Nueva cámara</button>
-          <button class="btn" id="verifyAll">Verificar todas las ubicaciones</button>
-        </div>
-        <div class="card panel"><div class="section-heading"><h2>Inventario</h2><span class="count" id="camCount"></span></div>
-          <div class="table-scroll"><table><thead><tr><th>ID</th><th>Nombre</th><th>Dirección</th><th>Estado</th><th>Prioridad</th><th>IP</th><th>Contrato EPE</th><th>Ubicación</th><th>Última acción</th><th></th></tr></thead><tbody id="camBody"></tbody></table></div>
-        </div>
-      </section>
+        <section class="trio">
+          <article class="card"><header class="card-head"><div><h2>Estado de las cámaras</h2><p class="hint">Cámaras activas</p></div></header><div id="dashStatus"></div></article>
+          <article class="card"><header class="card-head"><div><h2>Tareas por estado</h2><p class="hint">Plan de mantenimiento</p></div></header><div id="dashWorks"></div></article>
+          <article class="card"><header class="card-head"><div><h2>Últimas novedades</h2><p class="hint">Intervenciones recientes</p></div></header><div id="dashLog" class="timeline"></div></article>
+        </section>
 
-      <section id="tab-works" hidden>
-        <div class="toolbar"><button class="btn primary" id="newWork">Nuevo trabajo</button></div>
-        <div class="card panel"><div class="section-heading"><h2>Trabajos</h2><span class="count" id="workCount"></span></div>
-          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th><th>Notas</th><th></th></tr></thead><tbody id="workBody"></tbody></table></div>
-        </div>
+        <article class="card">
+          <header class="card-head"><div><h2>Tareas pendientes</h2><p class="hint">Ordenadas por fecha de vencimiento</p></div><span class="count" id="dashWorkCount"></span></header>
+          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th></tr></thead><tbody id="dashWorkBody"></tbody></table></div>
+        </article>
       </section>
 
       <section id="tab-log" hidden>
-        <div class="toolbar"><button class="btn primary" id="newLog">Registrar acción</button></div>
-        <div class="card panel"><div class="section-heading"><h2>Acciones registradas</h2><span class="count" id="logCount"></span></div>
-          <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Cámara</th><th>Responsable</th><th>Tipo</th><th>Descripción</th><th>Resultado</th><th>Próxima acción</th><th></th></tr></thead><tbody id="logBody"></tbody></table></div>
-        </div>
+        <div class="toolbar"><div class="grow"></div><button class="btn primary" id="newLog">Registrar novedad</button></div>
+        <article class="card"><header class="card-head"><h2>Novedades registradas</h2><span class="count" id="logCount"></span></header>
+          <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Cámara</th><th>Responsable</th><th>Tipo</th><th>Descripción</th><th>Resultado</th><th>Próxima acción</th><th class="act"></th></tr></thead><tbody id="logBody"></tbody></table></div>
+        </article>
       </section>
 
-      <section id="tab-map" hidden>
-        <div class="card panel"><div class="section-heading"><h2>Mapa de cámaras</h2><span class="count" id="mapCount"></span></div>
-          <div id="bigMap" class="map"></div>
-          <div id="mapLegend" class="legend"></div></div>
+      <section id="tab-works" hidden>
+        <div class="toolbar"><div class="grow"></div><button class="btn primary" id="newWork">Nueva tarea</button></div>
+        <article class="card"><header class="card-head"><h2>Tareas de mantenimiento</h2><span class="count" id="workCount"></span></header>
+          <div class="table-scroll"><table><thead><tr><th>N°</th><th>Cámara</th><th>Tarea</th><th>Estado</th><th>Avance</th><th>Responsable</th><th>Vence</th><th>Notas</th><th class="act"></th></tr></thead><tbody id="workBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="tab-cameras" hidden>
+        <section class="duo">
+          <article class="card"><header class="card-head"><div><h2>Datos cargados</h2><p class="hint" id="camQualityHint"></p></div></header><div id="camQuality"></div></article>
+          <article class="card"><header class="card-head"><div><h2>Cámaras por prioridad</h2><p class="hint">Total y operativas de cada nivel</p></div></header><div id="camPriority"></div></article>
+        </section>
+        <div class="toolbar">
+          <label>Buscar <input id="camSearch" type="search" placeholder="Nombre, dirección, IP"></label>
+          <label>Estado <select id="camStatus"><option value="all">Todos</option></select></label>
+          <div class="grow"></div>
+          <button class="btn primary" id="newCamera">Nueva cámara</button>
+        </div>
+        <article class="card"><header class="card-head"><h2>Inventario</h2><span class="count" id="camCount"></span></header>
+          <div class="table-scroll"><table><thead><tr><th>ID</th><th>Nombre</th><th>Dirección</th><th>Estado</th><th>Prioridad</th><th>IP</th><th>Contrato EPE</th><th>Ubicación</th><th>Última novedad</th><th class="act"></th></tr></thead><tbody id="camBody"></tbody></table></div>
+        </article>
       </section>
 
       <section id="tab-audit" hidden>
-        <div class="card panel"><div class="section-heading"><h2>Últimos 150 cambios</h2></div>
+        <article class="card"><header class="card-head"><h2>Historial de cambios</h2><span class="count">últimos 150</span></header>
           <div class="table-scroll"><table><thead><tr><th>Fecha</th><th>Tabla</th><th>ID</th><th>Acción</th><th>Usuario</th><th>Cambios</th></tr></thead><tbody id="auditBody"></tbody></table></div>
-        </div>
+        </article>
       </section>
     </div>
   </main>

@@ -9,7 +9,13 @@ const PRIORITY = { alta:'Alta', media:'Media', baja:'Baja' };
 const WSTATUS = { no_iniciado:'No iniciado', en_proceso:'En proceso', completado:'Completado', demorado:'Demorado', cancelado:'Cancelado' };
 const COLOR = { operativa:'#159467', sin_instalar:'#767c8a', falta_red:'#e99a05', sin_senal:'#ff1f4e', falla:'#ff1f4e', mantenimiento:'#e66b35' };
 const SOURCES = { gps:'GPS', mapa:'Clic en el mapa', geocodificada:'Desde la dirección', estimada:'Estimada' };
+const FAULTS = ['falla', 'falta_red', 'sin_senal'];
 const CENTER = [-33.09, -61.70];
+const TABS = ['dashboard', 'log', 'works', 'cameras', 'audit'];
+const ICON = {
+  eye: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM14 6l4 4"/></svg>'
+};
 
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -17,7 +23,8 @@ const fmtDate = (d) => d ? d.split('-').reverse().join('/') : '—';
 const orNull = (v) => (v === '' || v == null) ? null : v;
 const toNum = (v) => (v === '' || v == null) ? null : Number(v);
 const state = { me:null, cams:[], works:[], logs:[], contracts:new Map(), people:new Map() };
-let bigMap = null, bigLayer = null, miniMap = null, miniMarker = null;
+const mapFilter = new Set();
+let bigMap = null, bigLayer = null, miniMap = null, miniMarker = null, mapFitted = false;
 
 function toast(msg, err) {
   const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
@@ -27,10 +34,12 @@ const fail = (e) => { console.error(e); toast(e.message || String(e), true); };
 const options = (map, sel, blank) => (blank ? '<option value="">—</option>' : '') + Object.entries(map).map(([k, v]) => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
 const canCams = () => state.me?.role === 'admin';
 const canWork = () => ['admin', 'tecnico'].includes(state.me?.role);
+const statusBadge = (s) => `<span class="badge" style="background:${COLOR[s]}22;color:${COLOR[s]}"><i style="width:8px;height:8px;border-radius:50%;background:${COLOR[s]}"></i>${STATUS[s]}</span>`;
 
 /* ---------- sesión ---------- */
 function showLogin(msg) {
-  $('#appView').hidden = true; $('#loginView').hidden = false; $('#logoutBtn').hidden = true; $('#who').hidden = true;
+  $('#appView').hidden = true; $('#loginView').hidden = false;
+  ['#tabs', '#userMenu', '#live', '#dashRefresh'].forEach(s => { $(s).hidden = true; });
   $('#loginMsg').textContent = msg || '';
 }
 async function enter(user) {
@@ -38,11 +47,12 @@ async function enter(user) {
   if (error) return fail(error);
   if (!data || !data.active) { await sb.auth.signOut(); return showLogin('Tu usuario todavía no tiene permisos. Pedile acceso a un administrador.'); }
   state.me = { ...data, id: user.id };
-  $('#who').textContent = `${data.name} · ${data.role}`; $('#who').hidden = false; $('#logoutBtn').hidden = false;
-  $('#pwdBtn').hidden = false;
+  $('#who').textContent = data.name; $('#avatar').textContent = (data.name || '?').trim().charAt(0).toUpperCase();
+  ['#tabs', '#userMenu', '#live', '#dashRefresh'].forEach(s => { $(s).hidden = false; });
   $('#loginView').hidden = true; $('#appView').hidden = false;
-  $('#auditTab').hidden = data.role !== 'admin';
-  $('#newCamera').hidden = !canCams(); $('#verifyAll').hidden = !canCams(); $('#newWork').hidden = !canWork(); $('#newLog').hidden = !canWork();
+  $('#auditTab').hidden = data.role !== 'admin'; $('#verifyAll').hidden = !canCams();
+  $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canWork(); $('#newLog').hidden = !canWork();
+  showTab('dashboard');
   await loadAll();
 }
 $('#loginForm').addEventListener('submit', async (e) => {
@@ -51,8 +61,9 @@ $('#loginForm').addEventListener('submit', async (e) => {
   if (error) { $('#loginMsg').textContent = 'Correo o contraseña incorrectos.'; return; }
   $('#password').value = ''; await enter(data.user);
 });
-$('#logoutBtn').addEventListener('click', async () => { await sb.auth.signOut(); state.me = null; $('#pwdBtn').hidden = true; showLogin(); });
+$('#logoutBtn').addEventListener('click', async () => { closeMenu(); await sb.auth.signOut(); state.me = null; showLogin(); });
 $('#pwdBtn').addEventListener('click', () => {
+  closeMenu();
   const pw = (n, l) => `<label>${l}<input type="password" name="${n}" autocomplete="new-password" minlength="12" required></label>`;
   openDialog('Cambiar contraseña', `<p class="hint">Usá 12 caracteres o más. Combiná letras, números y símbolos, y no la reutilices en otros sitios.</p>${pw('p1', 'Nueva contraseña')}${pw('p2', 'Repetir contraseña')}`, async (fd) => {
     const a = fd.get('p1'), b = fd.get('p2');
@@ -64,7 +75,28 @@ $('#pwdBtn').addEventListener('click', () => {
   });
 });
 
+/* menú de usuario */
+function closeMenu() { $('#menu').hidden = true; $('#userBtn').setAttribute('aria-expanded', 'false'); }
+$('#userBtn').addEventListener('click', (e) => { e.stopPropagation(); const open = $('#menu').hidden; $('#menu').hidden = !open; $('#userBtn').setAttribute('aria-expanded', String(open)); });
+document.addEventListener('click', (e) => { if (!e.target.closest('#userMenu')) closeMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+$('#auditTab').addEventListener('click', () => showTab('audit'));
+$('#verifyAll').addEventListener('click', async () => {
+  closeMenu();
+  const n = state.cams.filter(c => c.lat != null && !c.coords_verified).length;
+  if (!n) return toast('Todas las ubicaciones cargadas ya están verificadas.');
+  if (!confirm(`Se van a marcar como verificadas ${n} cámaras que tienen ubicación. ¿Confirmás que ya las comprobaste en el lugar?`)) return;
+  const { error } = await sb.from('cameras').update({ coords_verified: true }).not('lat', 'is', null).not('lng', 'is', null).eq('coords_verified', false);
+  if (error) return fail(error);
+  toast(`${n} ubicaciones verificadas`); await loadAll();
+});
+
 /* ---------- datos ---------- */
+function setLive(ok) {
+  const el = $('#live'); el.classList.toggle('off', !ok);
+  $('#liveText').textContent = ok ? `En vivo · ${new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' })}` : 'Sin conexión';
+  el.title = ok ? `Última actualización: ${new Date().toLocaleString('es-AR')}` : 'No se pudieron actualizar los datos';
+}
 async function loadAll() {
   $('#errorBanner').hidden = true;
   const [c, w, l, k] = await Promise.all([
@@ -74,79 +106,76 @@ async function loadAll() {
     sb.from('epe_contracts').select('*')
   ]);
   const err = [c, w, l, k].find(r => r.error)?.error;
-  if (err) { $('#errorBanner').textContent = `No se pudieron cargar los datos: ${err.message}`; $('#errorBanner').hidden = false; return; }
+  if (err) { setLive(false); $('#errorBanner').textContent = `No se pudieron cargar los datos: ${err.message}`; $('#errorBanner').hidden = false; return; }
   state.cams = c.data; state.works = w.data; state.logs = l.data;
   state.contracts = new Map(k.data.map(x => [x.id, x]));
   if (state.me.role === 'admin') {
     const p = await sb.from('people').select('user_id,name');
     state.people = new Map((p.data || []).map(x => [x.user_id, x.name]));
   }
+  setLive(true);
   fillStatusFilter(); renderCams(); renderWorks(); renderLogs();
-  try { renderDashboard(); } catch (e) { console.error(e); $('#errorBanner').textContent = `No se pudo dibujar el dashboard: ${e.message}`; $('#errorBanner').hidden = false; }
-  if (!$('#tab-map').hidden) renderBigMap();
+  try { renderDashboard(); } catch (e) { console.error(e); $('#errorBanner').textContent = `No se pudo dibujar el Inicio: ${e.message}`; $('#errorBanner').hidden = false; }
   if (!$('#tab-audit').hidden) renderAudit();
 }
 const lastAction = () => { const m = new Map(); state.logs.forEach(x => { if (x.camera_id != null && !m.has(x.camera_id)) m.set(x.camera_id, x); }); return m; };
 const camName = (id) => { const c = state.cams.find(x => x.id === id); return c ? `#${c.id} ${c.name}` : `#${id}`; };
 
-/* ---------- pestañas ---------- */
-$('#tabs').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-tab]'); if (!b) return;
-  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('active', x === b));
-  ['dashboard', 'cameras', 'works', 'log', 'map', 'audit'].forEach(t => { $('#tab-' + t).hidden = t !== b.dataset.tab; });
-  if (b.dataset.tab === 'map') renderBigMap();
-  if (b.dataset.tab === 'audit') renderAudit();
-});
+/* ---------- secciones ---------- */
+function showTab(t) {
+  TABS.forEach(x => { $('#tab-' + x).hidden = x !== t; });
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+  closeMenu();
+  if (t === 'dashboard') setTimeout(() => bigMap && bigMap.invalidateSize(), 60);
+  if (t === 'audit') renderAudit();
+  window.scrollTo({ top: 0 });
+}
+$('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-ficha]'); if (b) openFicha(+b.dataset.ficha); });
 
-/* ---------- dashboard ---------- */
-const FAULTS = ['falla', 'falta_red', 'sin_senal'];
+/* ---------- inicio ---------- */
 const bars = (rows) => {
   const max = Math.max(...rows.map(r => r.value), 1);
   return rows.length ? `<div class="chart-bars">${rows.map(r => `<div class="bar-row"><span title="${esc(r.label)}">${esc(r.label)}</span><span class="bar-track"><i class="bar-fill" style="width:${r.value / max * 100}%;background:${r.color || 'var(--blue)'}"></i></span><strong>${r.value}</strong></div>`).join('')}</div>` : '<p class="hint">Sin datos.</p>';
 };
-const dashKpi = (value, label, sub, color) => `<div class="kpi"${color ? ` style="border-color:${color}"` : ''}><strong>${esc(value)}</strong><span>${esc(label)}</span><small>${esc(sub)}</small></div>`;
+const kpi = (value, label, sub, color) => `<div class="kpi"${color ? ` style="--c:${color}"` : ''}><strong>${esc(value)}</strong><span>${esc(label)}</span><small>${esc(sub)}</small></div>`;
 
 function renderDashboard() {
-  const cams = state.cams.filter(c => c.active), n = (f) => cams.filter(f).length;
-  const op = n(c => c.status === 'operativa'), fault = n(c => FAULTS.includes(c.status)), mant = n(c => c.status === 'mantenimiento'), sin = n(c => c.status === 'sin_instalar');
+  const cams = state.cams.filter(c => c.active), n = (f) => cams.filter(f).length, part = (s) => n(c => c.status === s);
+  const op = part('operativa'), fault = n(c => FAULTS.includes(c.status)), mant = part('mantenimiento'), sin = part('sin_instalar');
   const cov = cams.length ? Math.round(op / cams.length * 100) : 0;
   const today = new Date().toLocaleDateString('en-CA');
   const pending = state.works.filter(w => !['completado', 'cancelado'].includes(w.status));
   const late = pending.filter(w => w.due_date && w.due_date < today);
-  const avg = pending.length ? Math.round(pending.reduce((s, w) => s + w.progress, 0) / pending.length) : 0;
-  const located = n(c => c.lat != null), verified = n(c => c.lat != null && c.coords_verified);
-  const part = (s) => n(c => c.status === s);
+
   $('#dashKpis').innerHTML = [
-    dashKpi(cams.length, 'Cámaras registradas', 'activas en el sistema'),
-    dashKpi(op, 'Funcionando', `${cov}% de cobertura`, COLOR.operativa),
-    dashKpi(fault, 'Con falla', `Sin red ${part('falta_red')} · Sin señal ${part('sin_senal')} · Falla ${part('falla')}`, fault ? COLOR.sin_senal : null),
-    dashKpi(mant, 'En reparación', 'en mantenimiento', mant ? COLOR.mantenimiento : null),
-    dashKpi(sin, 'Sin instalar', 'pendientes de instalación'),
-    dashKpi(pending.length, 'Trabajos pendientes', `${late.length} vencidos`, late.length ? COLOR.sin_senal : null),
-    dashKpi(`${avg}%`, 'Avance de trabajos', 'promedio de los pendientes'),
-    dashKpi(`${located}/${cams.length}`, 'Ubicadas en el mapa', `${verified} verificadas`)
+    kpi(cams.length, 'Cámaras', 'registradas y activas'),
+    kpi(op, 'Funcionando', `${cov}% de cobertura`, COLOR.operativa),
+    kpi(fault, 'Con falla', `Sin red ${part('falta_red')} · Sin señal ${part('sin_senal')} · Falla ${part('falla')}`, fault ? COLOR.sin_senal : COLOR.operativa),
+    kpi(mant, 'En reparación', 'en mantenimiento', COLOR.mantenimiento),
+    kpi(sin, 'Sin instalar', 'pendientes de instalación', COLOR.sin_instalar),
+    kpi(pending.length, 'Tareas pendientes', `${late.length} vencidas`, late.length ? COLOR.sin_senal : 'var(--blue)')
   ].join('');
 
-  $('#dashStatus').innerHTML = bars(Object.keys(STATUS).map(s => ({ label: STATUS[s], value: part(s), color: COLOR[s] })).filter(r => r.value));
-  $('#dashWorks').innerHTML = bars(Object.keys(WSTATUS).map(s => ({ label: WSTATUS[s], value: state.works.filter(w => w.status === s).length })).filter(r => r.value));
-  $('#dashPriority').innerHTML = bars(Object.keys(PRIORITY).map(p => ({ label: `${PRIORITY[p]} (${n(c => c.priority === p && c.status === 'operativa')} operativas)`, value: n(c => c.priority === p) })).filter(r => r.value));
-  const q = (label, v) => ({ label, value: v });
-  $('#dashQuality').innerHTML = bars([q('Con IP cargada', n(c => c.ip)), q('Con contrato EPE', n(c => c.epe_contract_id != null)), q('Con ubicación', located), q('Ubicación verificada', verified), q('Con función definida', n(c => c.function))]) + `<p class="hint">Sobre ${cams.length} cámaras activas.</p>`;
+  renderBigMap();
 
   const last = lastAction(), rank = { alta: 0, media: 1, baja: 2 };
   const att = cams.filter(c => FAULTS.includes(c.status) || c.status === 'mantenimiento').sort((a, b) => rank[a.priority] - rank[b.priority] || a.id - b.id);
   $('#dashAttCount').textContent = `${att.length}`;
-  $('#dashAttBody').innerHTML = att.map(c => { const la = last.get(c.id); return `<tr><td>${c.id}</td><td><strong>${esc(c.name)}</strong></td><td>${esc(c.address) || '—'}</td>
-    <td><span class="badge" style="background:${COLOR[c.status]}22;color:${COLOR[c.status]}">${STATUS[c.status]}</span></td><td>${PRIORITY[c.priority]}</td>
-    <td>${la ? `${fmtDate(la.date)} · ${esc(la.description).slice(0, 50)}` : 'Sin acciones registradas'}</td></tr>`; }).join('') || '<tr><td colspan="6">Todas las cámaras activas están funcionando.</td></tr>';
+  $('#dashAtt').innerHTML = att.map(c => { const la = last.get(c.id); return `<button type="button" class="att-item" data-ficha="${c.id}">
+    <i class="dot" style="background:${COLOR[c.status]}"></i>
+    <span class="att-main"><strong>#${c.id} ${esc(c.name)}</strong><small>${esc(c.address) || 'Sin dirección'}</small></span>
+    <span class="att-side"><b style="color:${COLOR[c.status]}">${STATUS[c.status]}</b><small>${la ? `Novedad ${fmtDate(la.date)}` : 'Sin novedades'}</small></span></button>`; }).join('')
+    || '<div class="empty">Todas las cámaras activas están funcionando.</div>';
+
+  $('#dashStatus').innerHTML = bars(Object.keys(STATUS).map(s => ({ label: STATUS[s], value: part(s), color: COLOR[s] })).filter(r => r.value));
+  $('#dashWorks').innerHTML = bars(Object.keys(WSTATUS).map(s => ({ label: WSTATUS[s], value: state.works.filter(w => w.status === s).length })).filter(r => r.value));
+  $('#dashLog').innerHTML = state.logs.slice(0, 5).map(x => `<article class="event"><time>${fmtDate(x.date)}</time><p><strong>${x.camera_id != null ? esc(camName(x.camera_id)) : 'General'}${x.type ? ' · ' + esc(x.type) : ''}</strong><br>${esc(x.description)}</p></article>`).join('') || '<p class="hint">Sin novedades registradas.</p>';
 
   const sorted = [...pending].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
   $('#dashWorkCount').textContent = `${sorted.length}`;
-  $('#dashWorkBody').innerHTML = sorted.map(w => `<tr><td>${w.id}</td><td>${esc(camName(w.camera_id))}</td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td><td>${w.progress}%</td><td>${esc(w.assignee) || '—'}</td>
-    <td>${fmtDate(w.due_date)}${w.due_date && w.due_date < today ? ' <span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencido</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="7">No hay trabajos pendientes.</td></tr>';
-
-  $('#dashLog').innerHTML = state.logs.slice(0, 5).map(x => `<article class="event"><time>${fmtDate(x.date)}</time><p><strong>${x.camera_id != null ? esc(camName(x.camera_id)) : 'General'} · ${esc(x.type || '')}</strong><br>${esc(x.description)}<br><span class="hint">${esc(x.result || '')}${x.next_action ? ` · Próxima acción: ${esc(x.next_action)}` : ''}</span></p></article>`).join('') || '<p class="hint">Sin acciones registradas.</p>';
-  $('#dashUpdated').textContent = `Actualizado ${new Date().toLocaleString('es-AR')} · se refresca solo cada minuto`;
+  $('#dashWorkBody').innerHTML = sorted.map(w => `<tr><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td><td>${w.progress}%</td><td>${esc(w.assignee) || '—'}</td>
+    <td>${fmtDate(w.due_date)}${w.due_date && w.due_date < today ? ' <span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencida</span>' : ''}</td></tr>`).join('') || '<tr><td colspan="7">No hay tareas pendientes.</td></tr>';
 }
 $('#dashRefresh').addEventListener('click', () => loadAll().then(() => toast('Datos actualizados')));
 setInterval(() => { if (state.me && !$('#tab-dashboard').hidden && !$('#dlg').open) loadAll(); }, 60000);
@@ -164,28 +193,51 @@ function renderCams() {
   $('#camCount').textContent = `${rows.length} de ${state.cams.length}`;
   $('#camBody').innerHTML = rows.map(c => {
     const la = last.get(c.id), ct = state.contracts.get(c.epe_contract_id);
-    return `<tr${c.active ? '' : ' style="opacity:.5"'}><td>${c.id}</td><td><strong>${esc(c.name)}</strong></td><td>${esc(c.address) || '—'}</td>
-      <td><span class="badge" style="background:${COLOR[c.status]}22;color:${COLOR[c.status]}">${STATUS[c.status]}</span></td>
-      <td>${PRIORITY[c.priority]}</td><td>${esc(c.ip) || '—'}</td><td>${esc(ct?.supply_number) || '—'}</td>
-      <td>${c.lat != null ? (c.coords_verified ? '✔ verificada' : '● sin verificar') : '—'}</td>
+    return `<tr${c.active ? '' : ' style="opacity:.5"'}><td>${c.id}</td><td><button type="button" class="linkish" data-ficha="${c.id}">${esc(c.name)}</button></td><td>${esc(c.address) || '—'}</td>
+      <td>${statusBadge(c.status)}</td><td>${PRIORITY[c.priority]}</td><td>${esc(c.ip) || '—'}</td><td>${esc(ct?.supply_number) || '—'}</td>
+      <td>${c.lat != null ? (c.coords_verified ? '✔ Verificada' : '● Sin verificar') : '—'}</td>
       <td>${la ? `${fmtDate(la.date)} · ${esc(la.description).slice(0, 40)}` : '—'}</td>
-      <td><button class="btn small" data-cam="${c.id}">${canCams() ? 'Editar' : 'Ver'}</button></td></tr>`;
+      <td class="act"><span class="row-actions"><button class="btn small icon" data-ficha="${c.id}" title="Ver ficha" aria-label="Ver ficha de ${esc(c.name)}">${ICON.eye}</button>${canCams() ? `<button class="btn small icon" data-cam="${c.id}" title="Editar" aria-label="Editar ${esc(c.name)}">${ICON.edit}</button>` : ''}</span></td></tr>`;
   }).join('') || '<tr><td colspan="10">Sin resultados.</td></tr>';
+
+  const act = state.cams.filter(c => c.active), cn = (f) => act.filter(f).length;
+  $('#camQualityHint').textContent = `Sobre ${act.length} cámaras activas`;
+  $('#camQuality').innerHTML = bars([
+    { label: 'Con IP', value: cn(c => c.ip) }, { label: 'Con contrato EPE', value: cn(c => c.epe_contract_id != null) },
+    { label: 'Con ubicación', value: cn(c => c.lat != null) }, { label: 'Ubicación verificada', value: cn(c => c.lat != null && c.coords_verified) },
+    { label: 'Con función', value: cn(c => c.function) }]);
+  $('#camPriority').innerHTML = bars(Object.keys(PRIORITY).map(p => ({ label: `${PRIORITY[p]} (${cn(c => c.priority === p && c.status === 'operativa')} operativas)`, value: cn(c => c.priority === p) })).filter(r => r.value));
 }
 ['#camSearch', '#camStatus'].forEach(s => $(s).addEventListener('input', renderCams));
 $('#camBody').addEventListener('click', (e) => { const b = e.target.closest('[data-cam]'); if (b) openCamera(state.cams.find(c => c.id === +b.dataset.cam)); });
 $('#newCamera').addEventListener('click', () => openCamera(null));
-$('#verifyAll').addEventListener('click', async () => {
-  const n = state.cams.filter(c => c.lat != null && !c.coords_verified).length;
-  if (!n) return toast('Todas las ubicaciones cargadas ya están verificadas.');
-  if (!confirm(`Se van a marcar como verificadas ${n} cámaras que tienen ubicación. ¿Confirmás que ya las comprobaste en el lugar?`)) return;
-  const { error } = await sb.from('cameras').update({ coords_verified: true }).not('lat', 'is', null).not('lng', 'is', null).eq('coords_verified', false);
-  if (error) return fail(error);
-  toast(`${n} ubicaciones verificadas`); await loadAll();
-});
 
 const field = (name, label, val, attrs = '', cls = '') => `<label class="${cls}">${label}<input name="${name}" value="${esc(val ?? '')}" ${attrs}></label>`;
 const area = (name, label, val, cls = '') => `<label class="${cls}">${label}<textarea name="${name}">${esc(val ?? '')}</textarea></label>`;
+
+/* ficha de cámara (solo lectura) */
+function openFicha(id) {
+  const c = state.cams.find(x => x.id === id); if (!c) return;
+  const ct = state.contracts.get(c.epe_contract_id);
+  const kv = (k, v, cls = '') => `<div class="kv ${cls}"><dt>${k}</dt><dd>${v ? esc(v) : '—'}</dd></div>`;
+  const place = c.lat != null ? `<a href="https://www.google.com/maps?q=${c.lat},${c.lng}" target="_blank" rel="noopener">Abrir en Google Maps</a> · ${c.coords_verified ? 'verificada' : 'sin verificar'}` : 'Sin ubicar';
+  const logs = state.logs.filter(l => l.camera_id === id).slice(0, 8), works = state.works.filter(w => w.camera_id === id);
+  const body = `<div class="ficha-head">${statusBadge(c.status)}<span class="count">Prioridad ${PRIORITY[c.priority]}</span><span class="grow"></span>${canCams() ? '<button type="button" class="btn small" id="fichaEdit">Editar datos</button>' : ''}</div>
+    <dl class="kvgrid">
+      ${kv('Dirección', c.address)}${kv('Zona', c.zone)}${kv('Modelo', c.model)}${kv('Tipo', c.camera_type)}
+      ${kv('IP', c.ip)}${kv('MAC', c.mac)}${kv('N° de serie', c.serial)}${kv('Contrato EPE', ct?.supply_number)}
+      ${kv('Enlace', c.link_type)}${kv('Energía', c.power_source)}${kv('Instalada', c.installed_at && fmtDate(c.installed_at))}${kv('Última revisión', c.last_review_at && fmtDate(c.last_review_at))}
+      ${kv('Función', c.function, 'wide')}
+      <div class="kv wide"><dt>Ubicación</dt><dd>${place}</dd></div>
+      ${kv('Observaciones', c.notes, 'wide')}
+    </dl>
+    <h3 class="sub">Tareas de mantenimiento (${works.length})</h3>
+    ${works.map(w => `<p style="margin:4px 0"><strong>#${w.id} ${esc(w.task_type)}</strong> · ${WSTATUS[w.status]} · ${w.progress}% · vence ${fmtDate(w.due_date)}</p>`).join('') || '<p class="hint">Sin tareas.</p>'}
+    <h3 class="sub">Historial de novedades</h3>
+    <div class="timeline">${logs.map(l => `<article class="event"><time>${fmtDate(l.date)}</time><p><strong>${esc(l.type || '')}</strong><br>${esc(l.description)}${l.result ? `<br><span class="hint">${esc(l.result)}</span>` : ''}</p></article>`).join('') || '<p class="hint">Sin novedades.</p>'}</div>`;
+  openDialog(`Cámara #${c.id} — ${c.name}`, body, null);
+  const edit = $('#fichaEdit'); if (edit) edit.onclick = () => { $('#dlgCancel').click(); openCamera(c); };
+}
 
 function openCamera(cam) {
   const isNew = !cam, ro = !canCams() ? 'disabled' : '';
@@ -218,7 +270,7 @@ function openCamera(cam) {
       ${field('lng', 'Longitud', c.lng, 'type="number" step="any"')}
       <label>Origen coordenada<select name="coords_source">${options(SOURCES, c.coords_source, true)}</select></label>
       <label class="check"><input type="checkbox" name="coords_verified" ${c.coords_verified ? 'checked' : ''}> Ubicación verificada</label>
-      <div class="wide actions" style="justify-content:flex-start"><button type="button" class="btn small" id="geocodeBtn">Buscar dirección en el mapa</button><span class="hint" style="margin:0">Hacé clic en el mapa o arrastrá el punto para ubicar la cámara.</span></div>
+      <div class="wide actions" style="justify-content:flex-start;position:static;margin:0;padding:0"><button type="button" class="btn small" id="geocodeBtn">Buscar dirección en el mapa</button><span class="hint" style="margin:0">Hacé clic en el mapa o arrastrá el punto para ubicar la cámara.</span></div>
       <div class="wide"><div id="miniMap" class="map mini"></div></div>
       ${field('azimuth_deg', 'Orientación (0=Norte, °)', c.azimuth_deg, 'type="number" min="0" max="359"')}
       ${field('fov_deg', 'Ángulo de visión (°)', c.fov_deg, 'type="number" min="1" max="360"')}
@@ -257,12 +309,13 @@ async function saveCamera(fd, cam) {
   toast('Cámara guardada'); await loadAll();
 }
 
-/* ---------- trabajos ---------- */
+/* ---------- tareas de mantenimiento ---------- */
 function renderWorks() {
+  const today = new Date().toLocaleDateString('en-CA');
   $('#workCount').textContent = `${state.works.length}`;
-  $('#workBody').innerHTML = state.works.map(w => `<tr><td>${w.id}</td><td>${esc(camName(w.camera_id))}</td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td>
-    <td>${w.progress}%</td><td>${esc(w.assignee) || '—'}</td><td>${fmtDate(w.due_date)}</td><td class="wrap">${esc(w.notes) || '—'}</td>
-    <td><button class="btn small" data-work="${w.id}">${canWork() ? 'Editar' : 'Ver'}</button></td></tr>`).join('') || '<tr><td colspan="9">No hay trabajos cargados.</td></tr>';
+  $('#workBody').innerHTML = state.works.map(w => `<tr><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td><td>${WSTATUS[w.status]}</td>
+    <td>${w.progress}%</td><td>${esc(w.assignee) || '—'}</td><td>${fmtDate(w.due_date)}${!['completado', 'cancelado'].includes(w.status) && w.due_date && w.due_date < today ? ' <span class="badge" style="background:#ff1f4e22;color:#ff1f4e">Vencida</span>' : ''}</td><td class="wrap">${esc(w.notes) || '—'}</td>
+    <td class="act"><button class="btn small icon" data-work="${w.id}" title="${canWork() ? 'Editar' : 'Ver'}" aria-label="${canWork() ? 'Editar' : 'Ver'} tarea ${w.id}">${canWork() ? ICON.edit : ICON.eye}</button></td></tr>`).join('') || '<tr><td colspan="9">No hay tareas cargadas.</td></tr>';
 }
 $('#workBody').addEventListener('click', (e) => { const b = e.target.closest('[data-work]'); if (b) openWork(state.works.find(w => w.id === +b.dataset.work)); });
 $('#newWork').addEventListener('click', () => openWork(null));
@@ -272,7 +325,7 @@ function openWork(w) {
   const isNew = !w, ro = !canWork() ? 'disabled' : '';
   const x = w || { id: Math.max(0, ...state.works.map(k => k.id)) + 1, status:'no_iniciado', progress:0 };
   const body = `<fieldset ${ro}><div class="grid">
-    ${field('id', 'N° de trabajo', x.id, `type="number" required ${isNew ? '' : 'readonly'}`)}
+    ${field('id', 'N° de tarea', x.id, `type="number" required ${isNew ? '' : 'readonly'}`)}
     <label>Cámara<select name="camera_id" required>${camOptions(x.camera_id)}</select></label>
     ${field('task_type', 'Tipo de tarea', x.task_type, 'required list="taskTypes"')}
     <datalist id="taskTypes"><option>Instalación</option><option>Servicio Técnico</option><option>Mantenimiento</option></datalist>
@@ -283,30 +336,30 @@ function openWork(w) {
     ${field('due_date', 'Fecha estimada de fin', x.due_date, 'type="date"')}
     ${field('completed_at', 'Fecha de finalización real', x.completed_at, 'type="date"')}
     ${area('notes', 'Notas', x.notes, 'wide')}</div></fieldset>`;
-  openDialog(isNew ? 'Nuevo trabajo' : `Trabajo #${x.id}`, body, canWork() ? async (fd) => {
+  openDialog(isNew ? 'Nueva tarea' : `Tarea #${x.id}`, body, canWork() ? async (fd) => {
     const g = (k) => orNull((fd.get(k) ?? '').toString().trim());
     const p = { camera_id: +fd.get('camera_id'), task_type: g('task_type'), status: fd.get('status'), progress: +fd.get('progress'), assignee: g('assignee'),
       start_date: g('start_date'), due_date: g('due_date'), completed_at: g('completed_at'), notes: g('notes') };
     const r = w ? await sb.from('work_orders').update(p).eq('id', w.id) : await sb.from('work_orders').insert({ id: +fd.get('id'), ...p });
-    if (r.error) throw r.error; toast('Trabajo guardado'); await loadAll();
+    if (r.error) throw r.error; toast('Tarea guardada'); await loadAll();
   } : null, w && canWork() ? async () => {
-    const r = await sb.from('work_orders').delete().eq('id', w.id); if (r.error) throw r.error; toast('Trabajo eliminado'); await loadAll();
+    const r = await sb.from('work_orders').delete().eq('id', w.id); if (r.error) throw r.error; toast('Tarea eliminada'); await loadAll();
   } : null);
 }
 
-/* ---------- última acción / bitácora ---------- */
+/* ---------- novedades ---------- */
 function renderLogs() {
   $('#logCount').textContent = `${state.logs.length}`;
-  $('#logBody').innerHTML = state.logs.map(l => `<tr><td>${fmtDate(l.date)}</td><td>${l.camera_id != null ? esc(camName(l.camera_id)) : '—'}</td><td>${esc(l.technician) || '—'}</td><td>${esc(l.type) || '—'}</td>
+  $('#logBody').innerHTML = state.logs.map(l => `<tr><td>${fmtDate(l.date)}</td><td>${l.camera_id != null ? `<button type="button" class="linkish" data-ficha="${l.camera_id}">${esc(camName(l.camera_id))}</button>` : '—'}</td><td>${esc(l.technician) || '—'}</td><td>${esc(l.type) || '—'}</td>
     <td class="wrap">${esc(l.description)}</td><td>${esc(l.result) || '—'}</td><td class="wrap">${esc(l.next_action) || '—'}</td>
-    <td><button class="btn small" data-log="${l.id}">${canWork() ? 'Editar' : 'Ver'}</button></td></tr>`).join('') || '<tr><td colspan="8">Sin registros.</td></tr>';
+    <td class="act"><button class="btn small icon" data-log="${l.id}" title="${canWork() ? 'Editar' : 'Ver'}" aria-label="${canWork() ? 'Editar' : 'Ver'} novedad">${canWork() ? ICON.edit : ICON.eye}</button></td></tr>`).join('') || '<tr><td colspan="8">Sin novedades.</td></tr>';
 }
 $('#logBody').addEventListener('click', (e) => { const b = e.target.closest('[data-log]'); if (b) openLog(state.logs.find(l => l.id === +b.dataset.log)); });
 $('#newLog').addEventListener('click', () => openLog(null));
 
 function openLog(l) {
   const isNew = !l, ro = !canWork() ? 'disabled' : '';
-  const x = l || { date: new Date().toISOString().slice(0, 10), technician: state.me.name };
+  const x = l || { date: new Date().toLocaleDateString('en-CA'), technician: state.me.name };
   const body = `<fieldset ${ro}><div class="grid">
     ${field('date', 'Fecha', x.date, 'type="date" required')}
     <label>Cámara<select name="camera_id"><option value="">—</option>${camOptions(x.camera_id)}</select></label>
@@ -316,12 +369,12 @@ function openLog(l) {
     ${area('description', 'Qué se hizo', x.description, 'wide')}
     ${field('result', 'Resultado', x.result)}
     ${field('next_action', 'Próxima acción', x.next_action)}</div></fieldset>`;
-  openDialog(isNew ? 'Registrar acción' : 'Acción registrada', body, canWork() ? async (fd) => {
+  openDialog(isNew ? 'Registrar novedad' : 'Novedad registrada', body, canWork() ? async (fd) => {
     const g = (k) => orNull((fd.get(k) ?? '').toString().trim());
     const p = { date: g('date'), camera_id: toNum(g('camera_id')), technician: g('technician'), type: g('type'), description: g('description'), result: g('result'), next_action: g('next_action') };
     if (!p.description) throw new Error('Escribí qué se hizo.');
     const r = l ? await sb.from('logbook').update(p).eq('id', l.id) : await sb.from('logbook').insert(p);
-    if (r.error) throw r.error; toast('Acción guardada'); await loadAll();
+    if (r.error) throw r.error; toast('Novedad guardada'); await loadAll();
   } : null, l && canWork() ? async () => {
     const r = await sb.from('logbook').delete().eq('id', l.id); if (r.error) throw r.error; toast('Registro eliminado'); await loadAll();
   } : null);
@@ -336,12 +389,13 @@ function openDialog(title, body, onSave, onDelete, afterOpen) {
     ${onDelete ? '<button type="button" class="btn danger" id="dlgDelete">Eliminar</button>' : ''}
     ${onSave ? '<button type="submit" class="btn primary">Guardar</button>' : ''}</div>`;
   const dlg = $('#dlg'), msg = $('#dlgMsg');
-  const close = () => { if (miniMap) { miniMap.remove(); miniMap = null; miniMarker = null; } dlg.close(); };
+  const dispose = () => { if (miniMap) { miniMap.remove(); miniMap = null; miniMarker = null; } };
+  const close = () => { dispose(); dlg.close(); };
   $('#dlgCancel').onclick = close;
   if (onDelete) $('#dlgDelete').onclick = async () => { if (!confirm('¿Eliminar definitivamente? Queda registrado en el historial de cambios.')) return; try { await onDelete(); close(); } catch (e) { msg.textContent = e.message; } };
   const human = (m = '') => /type inet/.test(m) ? 'La IP no es válida (ejemplo: 192.168.1.35).' : /duplicate key.*ip/.test(m) ? 'Esa IP ya está asignada a otra cámara.' : /epe_contract/.test(m) && /duplicate/.test(m) ? 'Ese contrato EPE ya está asignado a otra cámara.' : /duplicate key/.test(m) ? 'Ya existe un registro con ese número.' : m;
   form.onsubmit = async (e) => { e.preventDefault(); msg.textContent = ''; try { await onSave(new FormData(form)); close(); } catch (err) { msg.textContent = human(err.message || String(err)); } };
-  dlg.oncancel = () => { if (miniMap) { miniMap.remove(); miniMap = null; miniMarker = null; } };
+  dlg.oncancel = dispose;
   dlg.showModal();
   if (afterOpen) afterOpen();
 }
@@ -395,22 +449,29 @@ function cone(c) {
   }
   return pts;
 }
-function renderBigMap() {
+function renderBigMap(fit = !mapFitted) {
   if (!bigMap) bigMap = baseMap('bigMap');
   if (bigLayer) bigLayer.remove();
   bigLayer = L.layerGroup().addTo(bigMap);
-  const located = state.cams.filter(c => c.lat != null && c.active);
-  $('#mapCount').textContent = `${located.length} de ${state.cams.filter(c => c.active).length} cámaras ubicadas`;
-  located.forEach(c => {
+  const active = state.cams.filter(c => c.active), located = active.filter(c => c.lat != null);
+  const shown = located.filter(c => !mapFilter.size || mapFilter.has(c.status));
+  $('#mapCount').textContent = `${located.length} de ${active.length} cámaras ubicadas`;
+  shown.forEach(c => {
     const col = COLOR[c.status];
-    L.circleMarker([c.lat, c.lng], { radius: 8, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 }).addTo(bigLayer)
-      .bindPopup(`<strong>#${c.id} ${esc(c.name)}</strong><br>${esc(c.address || '')}<br>${STATUS[c.status]}${c.coords_verified ? '' : '<br><em>ubicación sin verificar</em>'}`);
+    L.circleMarker([c.lat, c.lng], { radius: 9, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 }).addTo(bigLayer)
+      .bindPopup(`<strong>#${c.id} ${esc(c.name)}</strong><br>${esc(c.address || '')}<br>${STATUS[c.status]}<br><button type="button" class="btn small" data-ficha="${c.id}" style="margin-top:8px">Ver ficha</button>`);
     if (c.azimuth_deg != null && c.fov_deg && c.range_m) L.polygon(cone(c), { color: col, weight: 1, fillOpacity: .15 }).addTo(bigLayer);
   });
-  const n = (s) => located.filter(c => c.status === s).length, pending = state.cams.filter(c => c.active && c.lat == null).length;
-  $('#mapLegend').innerHTML = Object.keys(STATUS).filter(s => n(s)).map(s => `<span><i style="background:${COLOR[s]}"></i>${STATUS[s]}: ${n(s)}</span>`).join('') + (pending ? `<span>Sin ubicar: ${pending}</span>` : '');
-  setTimeout(() => { bigMap.invalidateSize(); if (located.length) bigMap.fitBounds(L.latLngBounds(located.map(c => [c.lat, c.lng])).pad(.2), { maxZoom: 17 }); }, 100);
+  const cnt = (s) => located.filter(c => c.status === s).length, none = active.length - located.length;
+  $('#mapChips').innerHTML = Object.keys(STATUS).filter(s => cnt(s)).map(s => `<button type="button" class="chip${mapFilter.has(s) ? ' on' : ''}" data-status="${s}" aria-pressed="${mapFilter.has(s)}"><i style="background:${COLOR[s]}"></i>${STATUS[s]} <b>${cnt(s)}</b></button>`).join('')
+    + (none ? `<span class="chip" style="cursor:default"><i style="background:var(--muted)"></i>Sin ubicar <b>${none}</b></span>` : '');
+  if (fit && shown.length) { mapFitted = true; setTimeout(() => { bigMap.invalidateSize(); bigMap.fitBounds(L.latLngBounds(shown.map(c => [c.lat, c.lng])).pad(.15), { maxZoom: 17 }); }, 100); }
 }
+$('#mapChips').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-status]'); if (!b) return;
+  const s = b.dataset.status; if (mapFilter.has(s)) mapFilter.delete(s); else mapFilter.add(s);
+  renderBigMap(true);
+});
 
 /* ---------- historial ---------- */
 async function renderAudit() {
