@@ -94,7 +94,7 @@ $('#verifyAll').addEventListener('click', async () => {
 /* ---------- datos ---------- */
 function setLive(ok) {
   const el = $('#live'); el.classList.toggle('off', !ok);
-  $('#liveText').textContent = ok ? `En vivo · ${new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' })}` : 'Sin conexión';
+  $('#liveText').textContent = ok ? `En vivo · ${new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', hour12:false })}` : 'Sin conexión';
   el.title = ok ? `Última actualización: ${new Date().toLocaleString('es-AR')}` : 'No se pudieron actualizar los datos';
 }
 async function loadAll() {
@@ -168,9 +168,13 @@ function renderDashboard() {
     <span class="att-side"><b style="color:${COLOR[c.status]}">${STATUS[c.status]}</b><small>${la ? `Novedad ${fmtDate(la.date)}` : 'Sin novedades'}</small></span></button>`; }).join('')
     || '<div class="empty">Todas las cámaras activas están funcionando.</div>';
 
-  $('#dashStatus').innerHTML = bars(Object.keys(STATUS).map(s => ({ label: STATUS[s], value: part(s), color: COLOR[s] })).filter(r => r.value));
-  $('#dashWorks').innerHTML = bars(Object.keys(WSTATUS).map(s => ({ label: WSTATUS[s], value: state.works.filter(w => w.status === s).length })).filter(r => r.value));
-  $('#dashLog').innerHTML = state.logs.slice(0, 5).map(x => `<article class="event"><time>${fmtDate(x.date)}</time><p><strong>${x.camera_id != null ? esc(camName(x.camera_id)) : 'General'}${x.type ? ' · ' + esc(x.type) : ''}</strong><br>${esc(x.description)}</p></article>`).join('') || '<p class="hint">Sin novedades registradas.</p>';
+  const stats = (rows) => `<div class="mini-stats">${rows.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('')}</div>`;
+  const avg = pending.length ? Math.round(pending.reduce((s, w) => s + w.progress, 0) / pending.length) : 0;
+  $('#dashStatus').innerHTML = bars(Object.keys(STATUS).map(s => ({ label: STATUS[s], value: part(s), color: COLOR[s] })))
+    + stats([[`${n(c => c.ip)}/${cams.length}`, 'Con IP'], [`${n(c => c.lat != null)}/${cams.length}`, 'Ubicadas'], [`${n(c => c.epe_contract_id != null)}/${cams.length}`, 'Con contrato']]);
+  $('#dashWorks').innerHTML = bars(Object.keys(WSTATUS).map(s => ({ label: WSTATUS[s], value: state.works.filter(w => w.status === s).length })))
+    + stats([[late.length, 'Vencidas'], [`${avg}%`, 'Avance medio'], [state.works.filter(w => w.status === 'completado').length, 'Completadas']]);
+  $('#dashLog').innerHTML = state.logs.slice(0, 4).map(x => `<article class="event"><time>${fmtDate(x.date)}</time><p><strong>${x.camera_id != null ? esc(camName(x.camera_id)) : 'General'}${x.type ? ' · ' + esc(x.type) : ''}</strong><br>${esc(x.description)}</p></article>`).join('') || '<p class="hint">Sin novedades registradas.</p>';
 
   const sorted = [...pending].sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'));
   $('#dashWorkCount').textContent = `${sorted.length}`;
