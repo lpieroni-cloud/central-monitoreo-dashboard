@@ -48,3 +48,7 @@ tbody tr:nth-child(even){background:color-mix(in srgb,var(--blue) 4%,transparent
 footer{max-width:1280px}
 @media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:760px){.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.hero{padding:28px 22px;flex-direction:column;align-items:flex-start}.kpi strong{font-size:2.2rem}.app-header{padding:10px 14px}}
+
+.kpi.k-black{background:#161616;color:#fff}
+.kpi.k-slate{background:#5b6279;color:#fff}
+.kpi.k-black span,.kpi.k-slate span,.kpi.k-black small,.kpi.k-slate small{color:rgba(255,255,255,.92)}

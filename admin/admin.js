@@ -9,6 +9,7 @@ const PRIORITY = { alta:'Alta', media:'Media', baja:'Baja' };
 const WSTATUS = { no_iniciado:'No iniciado', en_proceso:'En proceso', completado:'Completado', demorado:'Demorado', cancelado:'Cancelado' };
 const COLOR = { operativa:'#1f51ff', sin_instalar:'#8d94ad', falta_red:'#f5a000', sin_senal:'#fa0e4e', falla:'#fa0e4e', mantenimiento:'#e66b35' };
 const SOURCES = { gps:'GPS', mapa:'Clic en el mapa', geocodificada:'Desde la dirección', estimada:'Estimada' };
+const MAPCOLOR = { operativa:'#16a34a', sin_instalar:'#e11d2e', falta_red:'#f2b600', sin_senal:'#f2b600', falla:'#f2b600', mantenimiento:'#f08a00' };
 const FAULTS = ['falla', 'falta_red', 'sin_senal'];
 const CENTER = [-33.09, -61.70];
 const TABS = ['dashboard', 'actas', 'works', 'cameras', 'admin', 'audit'];
@@ -168,11 +169,11 @@ function renderDashboard() {
   const late = pending.filter(w => w.due_date && w.due_date < today);
 
   $('#dashKpis').innerHTML = [
-    kpi(cams.length, 'Cámaras', 'registradas y activas', 'white'),
+    kpi(cams.length, 'Cámaras', 'registradas y activas', 'black'),
     kpi(op, 'Funcionando', `${cov}% de cobertura`, 'blue'),
     kpi(fault, 'Con falla', `Sin red ${part('falta_red')} · Sin señal ${part('sin_senal')} · Falla ${part('falla')}`, fault ? 'magenta' : 'white'),
     kpi(mant, 'En reparación', 'en mantenimiento', 'navy'),
-    kpi(sin, 'Sin instalar', 'pendientes de instalación', 'lav'),
+    kpi(sin, 'Sin instalar', 'pendientes de instalación', 'slate'),
     kpi(pending.length, 'Tareas pendientes', `${late.length} vencidas`, late.length ? 'magenta' : 'white')
   ].join('');
 
@@ -182,9 +183,9 @@ function renderDashboard() {
   const att = cams.filter(c => FAULTS.includes(c.status) || c.status === 'mantenimiento').sort((a, b) => rank[a.priority] - rank[b.priority] || a.id - b.id);
   $('#dashAttCount').textContent = `${att.length}`;
   $('#dashAtt').innerHTML = att.map(c => { const la = last.get(c.id); return `<button type="button" class="att-item" data-ficha="${c.id}">
-    <i class="dot" style="background:${COLOR[c.status]}"></i>
+    <i class="dot" style="background:${MAPCOLOR[c.status]}"></i>
     <span class="att-main"><strong>#${c.id} ${esc(c.name)}</strong><small>${esc(c.address) || 'Sin dirección'}</small></span>
-    <span class="att-side"><b style="color:${COLOR[c.status]}">${STATUS[c.status]}</b><small>Desde ${fmtDate(localDate(c.status_since))}</small></span></button>`; }).join('')
+    <span class="att-side"><b>${STATUS[c.status]}</b><small>Desde ${fmtDate(localDate(c.status_since))}</small></span></button>`; }).join('')
     || '<div class="empty">Todas las cámaras activas están funcionando.</div>';
 
   const stats = (rows) => `<div class="mini-stats">${rows.map(([v, l]) => `<div><strong>${esc(v)}</strong><span>${esc(l)}</span></div>`).join('')}</div>`;
@@ -648,13 +649,13 @@ function renderBigMap(fit = !mapFitted) {
   const shown = located.filter(c => !mapFilter.size || mapFilter.has(c.status));
   $('#mapCount').textContent = `${located.length} de ${active.length} cámaras ubicadas`;
   shown.forEach(c => {
-    const col = COLOR[c.status];
+    const col = MAPCOLOR[c.status];
     L.circleMarker([c.lat, c.lng], { radius: 9, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 }).addTo(bigLayer)
       .bindPopup(`<strong>#${c.id} ${esc(c.name)}</strong><br>${esc(c.address || '')}<br>${STATUS[c.status]}<br><button type="button" class="btn small" data-ficha="${c.id}" style="margin-top:8px">Ver ficha</button>`);
     if (c.azimuth_deg != null && c.fov_deg && c.range_m) L.polygon(cone(c), { color: col, weight: 1, fillOpacity: .15 }).addTo(bigLayer);
   });
   const cnt = (s) => located.filter(c => c.status === s).length, none = active.length - located.length;
-  $('#mapChips').innerHTML = Object.keys(STATUS).filter(s => cnt(s)).map(s => `<button type="button" class="chip${mapFilter.has(s) ? ' on' : ''}" data-status="${s}" aria-pressed="${mapFilter.has(s)}"><i style="background:${COLOR[s]}"></i>${STATUS[s]} <b>${cnt(s)}</b></button>`).join('')
+  $('#mapChips').innerHTML = Object.keys(STATUS).filter(s => cnt(s)).map(s => `<button type="button" class="chip${mapFilter.has(s) ? ' on' : ''}" data-status="${s}" aria-pressed="${mapFilter.has(s)}"><i style="background:${MAPCOLOR[s]}"></i>${STATUS[s]} <b>${cnt(s)}</b></button>`).join('')
     + (none ? `<span class="chip" style="cursor:default"><i style="background:var(--muted)"></i>Sin ubicar <b>${none}</b></span>` : '');
   if (fit && shown.length) { mapFitted = true; setTimeout(() => { bigMap.invalidateSize(); bigMap.fitBounds(L.latLngBounds(shown.map(c => [c.lat, c.lng])).pad(.15), { maxZoom: 17 }); }, 100); }
 }
