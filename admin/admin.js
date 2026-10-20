@@ -39,6 +39,7 @@ const fail = (e) => { console.error(e); toast(e.message || String(e), true); };
 const options = (map, sel, blank) => (blank ? '<option value="">—</option>' : '') + Object.entries(map).map(([k, v]) => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
 const canCams = () => state.me?.role === 'admin';
 const canWork = () => ['admin', 'tecnico'].includes(state.me?.role);
+const canTasks = () => state.me?.role === 'admin';
 const statusBadge = (s) => `<span class="badge" style="background:${COLOR[s]}22;color:${COLOR[s]}"><i style="width:8px;height:8px;border-radius:50%;background:${COLOR[s]}"></i>${STATUS[s]}</span>`;
 
 /* ---------- sesión ---------- */
@@ -56,7 +57,7 @@ async function enter(user) {
   ['#tabs', '#userMenu', '#live', '#dashRefresh'].forEach(s => { $(s).hidden = false; });
   $('#loginView').hidden = true; $('#appView').hidden = false;
   $('#auditTab').hidden = data.role !== 'admin'; $('#adminTab').hidden = data.role !== 'admin'; $('#verifyAll').hidden = !canCams();
-  $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canWork();
+  $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canTasks();
   showTab('dashboard');
   await loadAll();
 }
@@ -177,7 +178,7 @@ function renderDashboard() {
     kpi(pending.length, 'Tareas pendientes', `${late.length} vencidas`, late.length ? 'magenta' : 'white')
   ].join('');
 
-  renderBigMap(); renderHistoryChart(); $('#heroPct').textContent = cov + '%'; $('#heroSub').textContent = fault ? `${fault} cámara${fault === 1 ? '' : 's'} con falla y ${late.length} tarea${late.length === 1 ? '' : 's'} vencida${late.length === 1 ? '' : 's'}. Todo el estado de la red, en tiempo real.` : 'Todas las cámaras activas están funcionando. Estado de la red en tiempo real.';
+  renderBigMap(); renderHistoryChart(); renderRequests(); $('#heroPct').textContent = cov + '%'; $('#heroSub').textContent = fault ? `${fault} cámara${fault === 1 ? '' : 's'} con falla y ${late.length} tarea${late.length === 1 ? '' : 's'} vencida${late.length === 1 ? '' : 's'}. Todo el estado de la red, en tiempo real.` : 'Todas las cámaras activas están funcionando. Estado de la red en tiempo real.';
 
   const last = lastAction(), rank = { alta: 0, media: 1, baja: 2 };
   const att = cams.filter(c => FAULTS.includes(c.status) || c.status === 'mantenimiento').sort((a, b) => rank[a.priority] - rank[b.priority] || a.id - b.id);
@@ -350,7 +351,7 @@ function renderWorks() {
   $('#workCount').textContent = `${rows.length}`;
   $('#workBody').innerHTML = rows.map(w => `<tr class="clickrow" data-follow="${w.id}"><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td>
     <td>${prioBadge(w.priority)}</td><td>${WSTATUS[w.status]}</td><td>${progressBar(w.progress)}</td><td>${esc(w.assignee) || '—'}</td><td>${fmtDate(w.due_date)}${isLate(w) ? ' ' + lateBadge : ''}</td>
-    <td class="act"><span class="row-actions"><button class="btn small icon" data-follow="${w.id}" title="Seguimiento" aria-label="Seguimiento de la tarea ${w.id}">${ICON.list}</button>${canWork() ? `<button class="btn small icon" data-work="${w.id}" title="Editar" aria-label="Editar tarea ${w.id}">${ICON.edit}</button>` : ''}</span></td></tr>`).join('')
+    <td class="act"><span class="row-actions"><button class="btn small icon" data-follow="${w.id}" title="Seguimiento" aria-label="Seguimiento de la tarea ${w.id}">${ICON.list}</button>${canTasks() ? `<button class="btn small icon" data-work="${w.id}" title="Editar" aria-label="Editar tarea ${w.id}">${ICON.edit}</button>` : ''}</span></td></tr>`).join('')
     || '<tr><td colspan="9">No hay tareas en esta vista.</td></tr>';
 }
 $('#workChips').addEventListener('click', (e) => { const b = e.target.closest('[data-wf]'); if (b) { workFilter.v = b.dataset.wf; renderWorks(); } });
@@ -362,9 +363,9 @@ $('#workBody').addEventListener('click', (e) => {
 $('#newWork').addEventListener('click', () => openWork(null));
 const camOptions = (sel) => state.cams.map(c => `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>#${c.id} ${esc(c.name)} — ${esc(c.address || '')}</option>`).join('');
 
-function openWork(w) {
-  const isNew = !w, ro = !canWork() ? 'disabled' : '';
-  const x = w || { status:'no_iniciado', progress:0, priority:'media' };
+function openWork(w, prefill, onSaved) {
+  const isNew = !w, ro = !canTasks() ? 'disabled' : '';
+  const x = w || { status:'no_iniciado', progress:0, priority:'media', ...(prefill || {}) };
   const body = `<fieldset ${ro}><div class="grid">
     ${isNew ? field('idAuto', 'N° de tarea', '', 'disabled placeholder="Se asigna solo"') : field('id', 'N° de tarea', x.id, 'type="number" readonly')}
     <label>Cámara<select name="camera_id" required>${camOptions(x.camera_id)}</select></label>
@@ -378,20 +379,22 @@ function openWork(w) {
     ${field('due_date', 'Fecha estimada de fin', x.due_date, 'type="date"')}
     ${field('completed_at', 'Fecha de finalización real', x.completed_at, 'type="date"')}
     ${area('notes', 'Descripción / notas', x.notes, 'wide')}</div></fieldset>`;
-  openDialog(isNew ? 'Nueva tarea' : `Editar tarea #${x.id}`, body, canWork() ? async (fd) => {
+  openDialog(isNew ? 'Nueva tarea' : `Editar tarea #${x.id}`, body, canTasks() ? async (fd) => {
     const g = (k) => orNull((fd.get(k) ?? '').toString().trim());
     const p = { camera_id: +fd.get('camera_id'), task_type: g('task_type'), priority: fd.get('priority'), status: fd.get('status'), progress: +fd.get('progress'), assignee: g('assignee'),
       start_date: g('start_date'), due_date: g('due_date'), completed_at: g('completed_at'), notes: g('notes') };
-    const r = w ? await sb.from('work_orders').update(p).eq('id', w.id) : await sb.from('work_orders').insert(p);
-    if (r.error) throw r.error; toast('Tarea guardada'); await loadAll();
-  } : null, w && canWork() ? async () => {
+    const r = w ? await sb.from('work_orders').update(p).eq('id', w.id) : await sb.from('work_orders').insert(p).select('id').single();
+    if (r.error) throw r.error;
+    if (!w && onSaved) await onSaved(r.data.id);
+    toast('Tarea guardada'); await loadAll();
+  } : null, w && canTasks() ? async () => {
     const r = await sb.from('work_orders').delete().eq('id', w.id); if (r.error) throw r.error; toast('Tarea eliminada'); await loadAll();
   } : null);
 }
 
 function openFollowup(w) {
   if (!w) return;
-  const can = canWork(), ups = state.updates.filter(u => u.work_order_id === w.id);
+  const can = canTasks(), ups = state.updates.filter(u => u.work_order_id === w.id);
   const KIND = { avance:'Avance', cierre:'Cierre', reapertura:'Reapertura' };
   const kv = (k, v, cls = '') => `<div class="kv ${cls}"><dt>${k}</dt><dd>${v ? esc(v) : '—'}</dd></div>`;
   const tl = ups.map(u => `<article class="event"><time>${new Date(u.created_at).toLocaleDateString('es-AR')}<br>${hhmm(u.created_at)}</time><p><strong>${KIND[u.kind]}${u.progress != null ? ` · ${u.progress}%` : ''}${u.status ? ` · ${WSTATUS[u.status]}` : ''}</strong> <span class="hint" style="margin:0">— ${esc(u.author_name || '')}</span><br>${esc(u.note)}</p></article>`).join('')
@@ -429,8 +432,9 @@ const entryTs = (shift, time) => {
   return new Date(`${d}T${time}:00`).toISOString();
 };
 
+const reqBadge = (e) => !e.needs_action ? '' : e.handled_at ? `<span class="badge" style="background:#1f51ff22;color:#1f51ff">Atendida${e.handled_task_id ? ` · tarea #${e.handled_task_id}` : ''}</span>` : '<span class="badge" style="background:#f2b60033;color:#8a6500">Solicitud pendiente</span>';
 function entryRow(e, edit) {
-  return `<div class="entry"><time>${hhmm(e.occurred_at)}</time><div class="entry-main">${catBadge(e.category)} <span class="entry-cams">${camChips(e.camera_ids)}</span>
+  return `<div class="entry"><time>${hhmm(e.occurred_at)}</time><div class="entry-main">${catBadge(e.category)} ${reqBadge(e)} <span class="entry-cams">${camChips(e.camera_ids)}</span>
     <p>${esc(e.description)}</p>${e.action_taken ? `<p class="hint" style="margin:0"><b>Acción:</b> ${esc(e.action_taken)}</p>` : ''}</div>
     ${edit ? `<span class="row-actions"><button class="btn small icon" data-editentry="${e.id}" title="Editar" aria-label="Editar novedad">${ICON.edit}</button></span>` : ''}</div>`;
 }
@@ -478,46 +482,44 @@ function openShiftDlg() {
 }
 
 function openEntry(shift, entry) {
-  const isNew = !entry;
+  const isNew = !entry, locked = !!(entry && entry.handled_at);
   const e = entry || { category: 'novedad', camera_ids: [], occurred_at: new Date().toISOString() }, sel = new Set(e.camera_ids);
   const list = state.cams.filter(c => c.active).map(c => `<label class="check cam-opt" data-t="${esc([c.id, c.name, c.address].join(' ').toLowerCase())}"><input type="checkbox" name="cams" value="${c.id}"${sel.has(c.id) ? ' checked' : ''}> #${c.id} ${esc(c.name)} <span class="hint" style="margin:0">— ${esc(c.address || '')}</span></label>`).join('');
   const body = `<fieldset><div class="grid">
     ${field('time', 'Hora', hhmm(e.occurred_at), 'type="time" required')}
-    <label>Tipo<select name="category">${options(CAT, e.category)}</select></label>
+    <label>Tipo<select name="category" id="catSel">${options(CAT, e.category)}</select></label>
     <div class="wide"><label>Cámaras involucradas<input type="search" id="camFind" placeholder="Buscar cámara…"></label><div class="checklist" id="camList">${list}</div></div>
     ${area('description', 'Qué pasó', e.description, 'wide')}
     ${area('action_taken', 'Acción tomada', e.action_taken, 'wide')}</div></fieldset>
-    ${isNew ? `<fieldset><legend>Acciones sobre las cámaras elegidas</legend><div class="grid">
-      <label class="check wide"><input type="checkbox" name="chg"> Cambiar su estado a:</label>
-      <label class="wide"><select name="newstatus">${options(STATUS, 'falta_red')}</select></label>
-      <label class="check wide"><input type="checkbox" name="svc" id="svcChk"> Requiere servicio técnico (se crea una tarea por cámara)</label>
-      <div class="wide grid" id="svcFields" hidden>${field('assignee', 'Responsable', '')}${field('due_date', 'Fecha límite', plusDays(7), 'type="date"')}</div></div></fieldset>` : ''}`;
+    <fieldset><legend>Solicitud a la administración</legend><div class="grid">
+      <label class="check wide"><input type="checkbox" name="req" id="reqChk" ${e.needs_action ? 'checked' : ''} ${locked ? 'disabled' : ''}> Pedir intervención de la administración (reparar, limpiar, revisar…)</label>
+      <p class="hint wide" style="margin:0">Se avisa por mail a la administración, que decide qué tarea corresponde. Las <b>fallas</b> siempre generan una solicitud.${locked ? ' <b>Esta solicitud ya fue atendida.</b>' : ''}</p></div></fieldset>
+    ${isNew ? `<fieldset><legend>Estado de las cámaras</legend><div class="grid">
+      <label class="check wide"><input type="checkbox" name="chg"> Cambiar el estado de las cámaras elegidas a:</label>
+      <label class="wide"><select name="newstatus">${options(STATUS, 'falta_red')}</select></label></div></fieldset>` : ''}`;
   openDialog(isNew ? 'Agregar novedad' : 'Editar novedad', body, async (fd) => {
     const g = (k) => orNull((fd.get(k) ?? '').toString().trim());
-    const cams = fd.getAll('cams').map(Number), desc = g('description');
+    const cams = fd.getAll('cams').map(Number), desc = g('description'), category = fd.get('category');
     if (!desc) throw new Error('Escribí qué pasó.');
-    if (isNew && (fd.get('chg') || fd.get('svc')) && !cams.length) throw new Error('Elegí al menos una cámara para esa acción.');
-    const p = { occurred_at: entryTs(shift, fd.get('time')), category: fd.get('category'), description: desc, action_taken: g('action_taken'), camera_ids: cams };
+    if (isNew && fd.get('chg') && !cams.length) throw new Error('Elegí al menos una cámara para cambiar su estado.');
+    const p = { occurred_at: entryTs(shift, fd.get('time')), category, description: desc, action_taken: g('action_taken'), camera_ids: cams };
+    if (!locked) p.needs_action = category === 'falla' || !!fd.get('req');
     if (!isNew) { const r = await sb.from('shift_entries').update(p).eq('id', entry.id); if (r.error) throw r.error; toast('Novedad guardada'); await loadAll(); return; }
     const ins = await sb.from('shift_entries').insert({ shift_id: shift.id, ...p }).select('id').single();
     if (ins.error) throw ins.error;
     const done = [];
-    if (fd.get('svc')) {
-      const rows = cams.map(cid => ({ camera_id: cid, task_type: 'Servicio Técnico', status: 'no_iniciado', progress: 0, assignee: g('assignee'), due_date: g('due_date'), start_date: localDate(Date.now()), notes: `Acta ${fmtDate(shift.shift_date)} (${TURNO[shift.shift_type]}): ${desc}`.slice(0, 500) }));
-      const w = await sb.from('work_orders').insert(rows).select('id');
-      if (w.error) { await loadAll(); throw new Error('La novedad se guardó, pero no se pudieron crear las tareas: ' + w.error.message); }
-      await sb.from('shift_entries').update({ work_order_ids: w.data.map(x => x.id) }).eq('id', ins.data.id);
-      done.push(`${w.data.length} tarea${w.data.length === 1 ? '' : 's'} creada${w.data.length === 1 ? '' : 's'}`);
-    }
+    if (p.needs_action) done.push('solicitud enviada a la administración');
     if (fd.get('chg')) {
       const r = await sb.rpc('report_cameras_status', { p_cams: cams, p_status: fd.get('newstatus') });
       if (r.error) { await loadAll(); throw new Error('La novedad se guardó, pero no se pudo cambiar el estado: ' + r.error.message); }
       done.push('estado actualizado');
     }
     toast('Novedad registrada' + (done.length ? ' · ' + done.join(' · ') : '')); await loadAll();
-  }, !isNew ? async () => { const r = await sb.from('shift_entries').delete().eq('id', entry.id); if (r.error) throw r.error; toast('Novedad eliminada'); await loadAll(); } : null, () => {
+  }, !isNew && !locked ? async () => { const r = await sb.from('shift_entries').delete().eq('id', entry.id); if (r.error) throw r.error; toast('Novedad eliminada'); await loadAll(); } : null, () => {
     $('#camFind').addEventListener('input', (ev) => { const q = ev.target.value.trim().toLowerCase(); document.querySelectorAll('.cam-opt').forEach(l => { l.hidden = !!q && !l.dataset.t.includes(q); }); });
-    const chk = $('#svcChk'); if (chk) chk.addEventListener('change', () => { $('#svcFields').hidden = !chk.checked; });
+    const cat = $('#catSel'), req = $('#reqChk');
+    const sync = () => { if (locked) return; if (cat.value === 'falla') { req.checked = true; req.disabled = true; } else req.disabled = false; };
+    cat.addEventListener('change', sync); sync();
   });
 }
 
@@ -585,7 +587,7 @@ function openDialog(title, body, onSave, onDelete, afterOpen, saveLabel) {
   const close = () => { dispose(); dlg.close(); };
   $('#dlgCancel').onclick = close;
   if (onDelete) $('#dlgDelete').onclick = async () => { if (!confirm('¿Eliminar definitivamente? Queda registrado en el historial de cambios.')) return; try { await onDelete(); close(); } catch (e) { msg.textContent = e.message; } };
-  const human = (m = '') => /alert_recipients_email/.test(m) ? 'Ese correo ya está cargado.' : /shifts_shift_date/.test(m) ? 'Ya existe un acta para esa fecha y turno.' : /type inet/.test(m) ? 'La IP no es válida (ejemplo: 192.168.1.35).' : /duplicate key.*ip/.test(m) ? 'Esa IP ya está asignada a otra cámara.' : /epe_contract/.test(m) && /duplicate/.test(m) ? 'Ese contrato EPE ya está asignado a otra cámara.' : /duplicate key/.test(m) ? 'Ya existe un registro con ese número.' : m;
+  const human = (m = '') => /row-level security.*work_orders|work_orders.*row-level/.test(m) ? 'Solo la administración puede crear o modificar tareas.' : /alert_recipients_email/.test(m) ? 'Ese correo ya está cargado.' : /shifts_shift_date/.test(m) ? 'Ya existe un acta para esa fecha y turno.' : /type inet/.test(m) ? 'La IP no es válida (ejemplo: 192.168.1.35).' : /duplicate key.*ip/.test(m) ? 'Esa IP ya está asignada a otra cámara.' : /epe_contract/.test(m) && /duplicate/.test(m) ? 'Ese contrato EPE ya está asignado a otra cámara.' : /duplicate key/.test(m) ? 'Ya existe un registro con ese número.' : m;
   form.onsubmit = async (e) => { e.preventDefault(); msg.textContent = ''; try { await onSave(new FormData(form)); close(); } catch (err) { msg.textContent = human(err.message || String(err)); } };
   dlg.oncancel = dispose;
   dlg.showModal();
@@ -679,6 +681,33 @@ async function renderAudit() {
   $('#auditBody').innerHTML = data.map(r => `<tr><td>${new Date(r.at).toLocaleString('es-AR')}</td><td>${esc(r.table_name)}</td><td>${esc(r.row_id)}</td>
     <td>${esc(r.action)}</td><td>${esc(state.people.get(r.user_id) || (r.user_id ? r.user_id.slice(0, 8) : 'sistema'))}</td><td class="diff">${diff(r)}</td></tr>`).join('') || '<tr><td colspan="6">Sin cambios registrados.</td></tr>';
 }
+
+/* ---------- solicitudes de intervención ---------- */
+function renderRequests() {
+  const pend = state.entries.filter(e => e.needs_action && !e.handled_at).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+  $('#reqCard').hidden = !pend.length; $('#reqCount').textContent = `${pend.length}`;
+  $('#reqList').innerHTML = pend.map(e => { const s = state.shifts.find(x => x.id === e.shift_id);
+    return `<div class="req"><div class="req-main"><div class="req-top">${catBadge(e.category)}<span class="hint" style="margin:0">${fmtDate(localDate(e.occurred_at))} ${hhmm(e.occurred_at)} · ${esc(s?.operator_name || '')}</span></div>
+      <div class="entry-cams">${camChips(e.camera_ids)}</div><p>${esc(e.description)}</p>${e.action_taken ? `<p class="hint" style="margin:4px 0 0"><b>Acción del operador:</b> ${esc(e.action_taken)}</p>` : ''}</div>
+      ${canTasks() ? `<div class="row-actions"><button class="btn small primary" data-reqtask="${e.id}">Crear tarea</button><button class="btn small" data-reqdone="${e.id}">Marcar atendida</button></div>` : ''}</div>`; }).join('');
+}
+document.addEventListener('click', (ev) => {
+  const t = ev.target.closest('[data-reqtask]'), d = ev.target.closest('[data-reqdone]');
+  if (t) {
+    const e = state.entries.find(x => x.id === +t.dataset.reqtask); if (!e) return;
+    openWork(null, { camera_id: e.camera_ids[0], task_type: 'Servicio Técnico', priority: e.category === 'falla' ? 'alta' : 'media', notes: e.description }, async (taskId) => {
+      if (e.camera_ids.length <= 1) { const r = await sb.rpc('resolve_request', { p_entry: e.id, p_task: taskId, p_note: null }); if (r.error) throw r.error; }
+      else toast('Tarea creada. Cuando termines con todas las cámaras, marcá la solicitud como atendida.');
+    });
+  }
+  if (d) {
+    const e = state.entries.find(x => x.id === +d.dataset.reqdone); if (!e) return;
+    openDialog('Marcar solicitud como atendida', `<p>${esc(e.description)}</p>${area('note', 'Qué se resolvió (opcional)', '', 'wide')}`, async (fd) => {
+      const r = await sb.rpc('resolve_request', { p_entry: e.id, p_task: null, p_note: (fd.get('note') || '').toString() }); if (r.error) throw r.error;
+      toast('Solicitud atendida'); await loadAll();
+    }, null, null, 'Marcar atendida');
+  }
+});
 
 /* ---------- evolución de cobertura ---------- */
 function renderHistoryChart() {

@@ -325,3 +325,11 @@ body.kiosk .hero{display:none}
 .k-slate{background:#5b6279!important;color:#fff}
 .admin .k-black span,.admin .k-slate span,.admin .k-black small,.admin .k-slate small{color:rgba(255,255,255,.92)}
 :root[data-theme=dark] .k-black{box-shadow:0 0 0 1.5px rgba(255,255,255,.22)}
+
+/* Solicitudes de intervención */
+#reqList{display:flex;flex-direction:column;gap:10px}
+#reqCard .card-head h2{color:var(--brand-magenta)}
+.req{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:14px 16px;border-radius:16px;background:color-mix(in srgb,var(--brand-magenta) 6%,var(--surface));border-left:5px solid var(--brand-magenta)}
+.req p{margin:6px 0 0}
+.req-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+@media(max-width:760px){.req{flex-direction:column}}
