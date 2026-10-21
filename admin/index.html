@@ -37,6 +37,7 @@
           <button role="menuitem" id="pwdBtn">Cambiar contraseña</button>
           <button role="menuitem" id="kioskBtn">Modo pantalla</button>
           <button role="menuitem" id="adminTab" hidden>Usuarios y avisos</button>
+          <button role="menuitem" id="archiveTab" hidden>Archivo histórico</button>
           <button role="menuitem" id="auditTab" hidden>Historial de cambios</button>
           <button role="menuitem" id="verifyAll" hidden>Verificar ubicaciones</button>
           <hr>
@@ -168,6 +169,17 @@
         <article class="card">
           <header class="card-head"><div><h2>Avisos por mail</h2><p class="hint">Reciben las fallas de cámaras, tareas nuevas y vencidas, y las actas cerradas</p></div><button class="btn primary" id="newRcpt">Agregar destinatario</button></header>
           <div class="table-scroll"><table><thead><tr><th>Correo</th><th>Nombre</th><th>Estado</th><th class="act"></th></tr></thead><tbody id="rcptBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="tab-archive" hidden>
+        <article class="card">
+          <header class="card-head"><div><h2>Archivo histórico</h2><p class="hint">Registros retirados del uso diario (planilla original y pruebas). Solo lectura.</p></div><span class="count" id="archCount"></span></header>
+          <div class="toolbar">
+            <label>Buscar <input id="archSearch" type="search" placeholder="Cámara, texto, responsable, fecha…"></label>
+            <label>Origen <select id="archSource"><option value="all">Todos</option><option value="logbook">Novedades</option><option value="work_orders">Tareas</option><option value="shifts">Actas</option></select></label>
+          </div>
+          <div class="table-scroll"><table><thead><tr><th>Origen</th><th>Detalle</th><th>Archivado</th><th class="act"></th></tr></thead><tbody id="archBody"></tbody></table></div>
         </article>
       </section>
 

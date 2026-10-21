@@ -12,7 +12,7 @@ const SOURCES = { gps:'GPS', mapa:'Clic en el mapa', geocodificada:'Desde la dir
 const MAPCOLOR = COLOR;
 const FAULTS = ['falla', 'falta_red', 'sin_senal'];
 const CENTER = [-33.09, -61.70];
-const TABS = ['dashboard', 'actas', 'works', 'cameras', 'admin', 'audit'];
+const TABS = ['dashboard', 'actas', 'works', 'cameras', 'admin', 'archive', 'audit'];
 const CAT = { falla:'Falla', novedad:'Novedad', intervencion:'Intervención', observacion:'Observación' };
 const CATCOLOR = { falla:'#fa0e4e', novedad:'#1f51ff', intervencion:'#202e51', observacion:'#8d94ad' };
 const TURNO = { manana:'Mañana', tarde:'Tarde', noche:'Noche' };
@@ -56,7 +56,7 @@ async function enter(user) {
   $('#who').textContent = data.name; $('#avatar').textContent = (data.name || '?').trim().charAt(0).toUpperCase();
   ['#tabs', '#userMenu', '#live', '#dashRefresh'].forEach(s => { $(s).hidden = false; });
   $('#loginView').hidden = true; $('#appView').hidden = false;
-  $('#auditTab').hidden = data.role !== 'admin'; $('#adminTab').hidden = data.role !== 'admin'; $('#verifyAll').hidden = !canCams();
+  $('#auditTab').hidden = data.role !== 'admin'; $('#adminTab').hidden = data.role !== 'admin'; $('#archiveTab').hidden = data.role !== 'admin'; $('#verifyAll').hidden = !canCams();
   $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canTasks();
   showTab('dashboard');
   await loadAll();
@@ -149,6 +149,7 @@ function showTab(t) {
   if (t === 'dashboard') setTimeout(() => bigMap && bigMap.invalidateSize(), 60);
   if (t === 'audit') renderAudit();
   if (t === 'admin') loadAdmin();
+  if (t === 'archive') loadArchive();
   window.scrollTo({ top: 0 });
 }
 $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-tab]'); if (b) showTab(b.dataset.tab); });
@@ -810,6 +811,45 @@ function setKiosk(on) {
 $('#kioskBtn').addEventListener('click', () => { closeMenu(); setKiosk(true); });
 $('#kioskExit').addEventListener('click', () => setKiosk(false));
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && kiosk) setKiosk(false); });
+
+/* ---------- archivo histórico ---------- */
+const ARCH_SOURCE = { logbook: 'Novedad', work_orders: 'Tarea', shifts: 'Acta' };
+const ARCH_LABEL = { date: 'Fecha', camara: 'Cámara', technician: 'Técnico', type: 'Tipo', description: 'Descripción', result: 'Resultado', next_action: 'Próxima acción',
+  task_type: 'Tarea', status: 'Estado', progress: 'Avance %', assignee: 'Responsable', start_date: 'Inicio', due_date: 'Vence', completed_at: 'Cierre', notes: 'Notas',
+  acta_no: 'Acta N°', shift_date: 'Fecha', shift_type: 'Turno', operator: 'Operador', opened_at: 'Apertura', closed_at: 'Cierre', handover_notes: 'Observaciones de entrega' };
+const archSummary = (r) => {
+  const d = r.data || {};
+  if (r.source_table === 'logbook') return `${fmtDate(d.date)} · ${d.camara || 'Sin cámara'} · ${d.type || ''}: ${d.description || ''}`;
+  if (r.source_table === 'work_orders') return `Tarea #${d.id} · ${d.camara || ''} · ${d.task_type || ''} (${WSTATUS[d.status] || d.status || ''})`;
+  if (r.source_table === 'shifts') return `Acta N° ${d.acta_no ?? '—'} · ${fmtDate(d.shift_date)} · turno ${TURNO[d.shift_type] || ''} · ${d.operator || ''}`;
+  return JSON.stringify(d).slice(0, 120);
+};
+async function loadArchive() {
+  const r = await sb.from('archive_records').select('*').order('archived_at', { ascending: false }).order('id', { ascending: true });
+  if (r.error) { $('#archBody').innerHTML = `<tr><td colspan="4">No se pudo cargar el archivo: ${esc(r.error.message)}</td></tr>`; return; }
+  state.archive = r.data; renderArchive();
+}
+function renderArchive() {
+  const q = $('#archSearch').value.trim().toLowerCase(), s = $('#archSource').value, all = state.archive || [];
+  const rows = all.filter(r => (s === 'all' || r.source_table === s) && (!q || (archSummary(r) + ' ' + JSON.stringify(r.data)).toLowerCase().includes(q)));
+  $('#archCount').textContent = `${rows.length} de ${all.length}`;
+  $('#archBody').innerHTML = rows.map(r => `<tr class="clickrow" data-arch="${r.id}"><td><span class="badge" style="background:#1f51ff22;color:#1f51ff">${ARCH_SOURCE[r.source_table] || esc(r.source_table)}</span></td>
+    <td class="wrap">${esc(archSummary(r))}</td><td>${fmtDate(localDate(r.archived_at))}</td>
+    <td class="act"><button class="btn small icon" data-arch="${r.id}" title="Ver detalle" aria-label="Ver detalle">${ICON.eye}</button></td></tr>`).join('') || '<tr><td colspan="4">No hay registros para esa búsqueda.</td></tr>';
+}
+$('#archSearch').addEventListener('input', renderArchive);
+$('#archSource').addEventListener('input', renderArchive);
+$('#archiveTab').addEventListener('click', () => showTab('archive'));
+$('#archBody').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-arch]'); if (!b) return;
+  const r = (state.archive || []).find(x => x.id === +b.dataset.arch); if (!r) return;
+  const d = r.data || {}, fmtVal = (k, v) => /date|_at$/.test(k) && v ? (String(v).length > 10 ? new Date(v).toLocaleString('es-AR', { hour12: false }) : fmtDate(v)) : k === 'shift_type' ? (TURNO[v] || v) : k === 'status' ? (WSTATUS[v] || v) : v;
+  const kv = Object.keys(ARCH_LABEL).filter(k => d[k] != null && d[k] !== '' && typeof d[k] !== 'object')
+    .map(k => `<div class="kv ${/description|notes|handover|next_action/.test(k) ? 'wide' : ''}"><dt>${ARCH_LABEL[k]}</dt><dd>${esc(fmtVal(k, d[k]))}</dd></div>`).join('');
+  const entries = Array.isArray(d.entries) && d.entries.length ? `<h3 class="sub">Novedades del acta</h3>${d.entries.map(en => `<p style="margin:6px 0"><strong>${esc(en.time)} · ${esc(CAT[en.category] || en.category)}</strong> — ${esc((en.cameras || []).join(', ') || 'sin cámara')}<br>${esc(en.description)}${en.action_taken ? `<br><span class="hint" style="margin:0">Acción: ${esc(en.action_taken)}</span>` : ''}</p>`).join('')}` : '';
+  openDialog('Detalle del registro archivado', `<p class="hint">${esc(r.reason || '')}</p><dl class="kvgrid">${kv}</dl>${entries}`, null);
+});
+
 
 /* ---------- tema e inicio ---------- */
 $('#themeToggle').addEventListener('click', () => {
