@@ -1,17 +1,12 @@
 # Central de Monitoreo — San José de la Esquina
 
-Tablero estático e independiente que lee en vivo el inventario de cámaras, el
-plan de trabajos, la bitácora y el histórico de KPI desde Google Sheets.
+Panel de gestión de la Central de Monitoreo Municipal: estado de las cámaras, mapa, actas de turno,
+tareas de mantenimiento, usuarios y avisos por mail. Sitio estático (HTML/CSS/JS) sobre Supabase.
+
+- **Ingreso:** `/admin` (la dirección principal redirige ahí). Requiere usuario y contraseña.
+- **Base de datos:** Supabase (migraciones versionadas en `supabase/migrations/`, funciones en `supabase/functions/`).
+- **Hosting:** Vercel, con despliegue automático desde la rama `main`.
+- **Sitio público:** dado de baja el 20/10/2026; archivado en `sitio-publico-archivado/` (ver su `LEEME.md` para retomarlo).
 
 ## Uso local
-
-Servir esta carpeta con un servidor HTTP, por ejemplo `npx serve .`, y abrir la
-URL informada. No requiere instalación ni proceso de compilación.
-
-## Publicación en Vercel
-
-Importar esta carpeta como proyecto nuevo. Framework Preset: `Other`; Build
-Command: vacío; Output Directory: `.`. Los cambios de la planilla aparecen al
-recargar y no requieren un nuevo despliegue.
-
-La interfaz pública omite deliberadamente la columna IP.
+Servir esta carpeta con un servidor HTTP, por ejemplo `npx serve .`, y abrir `/admin`.
