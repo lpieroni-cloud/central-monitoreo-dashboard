@@ -49,13 +49,14 @@ function showLogin(msg) {
   $('#loginMsg').textContent = msg || '';
 }
 async function enter(user) {
-  const { data, error } = await sb.from('people').select('name,role,active').eq('user_id', user.id).maybeSingle();
+  const { data, error } = await sb.from('people').select('name,role,active,organization').eq('user_id', user.id).maybeSingle();
   if (error) return fail(error);
   if (!data || !data.active) { await sb.auth.signOut(); return showLogin('Tu usuario todavía no tiene permisos. Pedile acceso a un administrador.'); }
   state.me = { ...data, id: user.id };
   $('#who').textContent = data.name; $('#avatar').textContent = (data.name || '?').trim().charAt(0).toUpperCase();
   ['#tabs', '#userMenu', '#live', '#dashRefresh'].forEach(s => { $(s).hidden = false; });
   $('#loginView').hidden = true; $('#appView').hidden = false;
+  $('#pwdBtn').hidden = data.organization === 'Visitante';
   $('#auditTab').hidden = data.role !== 'admin'; $('#adminTab').hidden = data.role !== 'admin'; $('#archiveTab').hidden = data.role !== 'admin'; $('#verifyAll').hidden = !canCams();
   $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canTasks();
   showTab('dashboard');
@@ -63,8 +64,9 @@ async function enter(user) {
 }
 $('#loginForm').addEventListener('submit', async (e) => {
   e.preventDefault(); $('#loginMsg').textContent = '';
-  const { data, error } = await sb.auth.signInWithPassword({ email: $('#email').value.trim(), password: $('#password').value });
-  if (error) { $('#loginMsg').textContent = 'Correo o contraseña incorrectos.'; return; }
+  const typed = $('#email').value.trim().toLowerCase(), email = typed.includes('@') ? typed : typed + '@central-monitoreo.local';
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: $('#password').value });
+  if (error) { $('#loginMsg').textContent = 'Usuario o contraseña incorrectos.'; return; }
   $('#password').value = ''; await enter(data.user);
 });
 $('#logoutBtn').addEventListener('click', async () => { closeMenu(); await sb.auth.signOut(); state.me = null; showLogin(); });
