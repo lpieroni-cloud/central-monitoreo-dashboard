@@ -4,6 +4,9 @@ import nodemailer from "npm:nodemailer@6.9.16";
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json" } });
 
+// Avisos que nacen de las actas: solo los reciben los destinatarios con "receives_actas" activo.
+const ACTA_EVENTS = ["shift_closed", "action_request"];
+
 Deno.serve(async () => {
   const user = Deno.env.get("GMAIL_USER");
   const pass = Deno.env.get("GMAIL_APP_PASSWORD");
@@ -14,17 +17,25 @@ Deno.serve(async () => {
   if (error) return json({ error: error.message }, 500);
   if (!pending?.length) return json({ sent: 0 });
 
-  const { data: rcpts } = await sb.from("alert_recipients").select("email").eq("active", true);
-  const to = (rcpts ?? []).map((r) => r.email);
+  const { data: rcpts } = await sb.from("alert_recipients").select("email,receives_actas").eq("active", true);
+  const toAll = (rcpts ?? []).map((r) => r.email);
+  const toActas = (rcpts ?? []).filter((r) => r.receives_actas).map((r) => r.email);
 
   const transport = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass } });
   let sent = 0;
   for (const m of pending) {
     try {
-      const dest = m.to_email ? [m.to_email] : to;
-      if (!dest.length) throw new Error("No hay destinatarios activos");
+      const isActa = ACTA_EVENTS.includes(m.event_type);
+      const dest = m.to_email ? [m.to_email] : (isActa ? toActas : toAll);
+      if (!dest.length) {
+        if (isActa && !m.to_email) {
+          await sb.from("alert_outbox").update({ status: "sent", sent_at: new Date().toISOString(), attempts: m.attempts + 1, last_error: "Sin destinatarios para avisos de actas", sent_to: "" }).eq("id", m.id);
+          continue;
+        }
+        throw new Error("No hay destinatarios activos");
+      }
       await transport.sendMail({ from: `Central de Monitoreo <${user}>`, to: dest, subject: m.subject, text: m.body });
-      await sb.from("alert_outbox").update({ status: "sent", sent_at: new Date().toISOString(), attempts: m.attempts + 1, last_error: null }).eq("id", m.id);
+      await sb.from("alert_outbox").update({ status: "sent", sent_at: new Date().toISOString(), attempts: m.attempts + 1, last_error: null, sent_to: dest.join(", ") }).eq("id", m.id);
       sent++;
     } catch (e) {
       const attempts = m.attempts + 1;

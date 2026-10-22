@@ -768,7 +768,8 @@ function renderUsers() {
 function renderRcpts() {
   $('#rcptBody').innerHTML = state.rcpts.map(r => `<tr><td>${esc(r.email)}</td><td>${esc(r.name) || '—'}</td>
     <td><button class="btn small" data-rtoggle="${r.id}">${r.active ? 'Activo — pausar' : 'Pausado — activar'}</button></td>
-    <td class="act"><button class="btn small danger" data-rdel="${r.id}">Quitar</button></td></tr>`).join('') || '<tr><td colspan="4">Todavía no hay destinatarios: no se enviará ningún aviso.</td></tr>';
+    <td><button class="btn small" data-ractas="${r.id}" title="Cierre de actas y solicitudes de intervención">${r.receives_actas ? 'Los recibe — desactivar' : 'No los recibe — activar'}</button></td>
+    <td class="act"><button class="btn small danger" data-rdel="${r.id}">Quitar</button></td></tr>`).join('') || '<tr><td colspan="5">Todavía no hay destinatarios: no se enviará ningún aviso.</td></tr>';
 }
 $('#newUser').addEventListener('click', () => openDialog('Nuevo usuario', `<fieldset><div class="grid">
     ${field('name', 'Nombre y apellido', '', 'required')}${field('email', 'Correo', '', 'type="email" required')}
@@ -793,7 +794,8 @@ $('#newRcpt').addEventListener('click', () => openDialog('Agregar destinatario',
   if (r.error) throw r.error; toast('Destinatario agregado'); await loadAdmin();
 }));
 $('#rcptBody').addEventListener('click', async (e) => {
-  const t = e.target.closest('[data-rtoggle]'), d = e.target.closest('[data-rdel]');
+  const t = e.target.closest('[data-rtoggle]'), d = e.target.closest('[data-rdel]'), a = e.target.closest('[data-ractas]');
+  if (a) { const r0 = state.rcpts.find(x => x.id === +a.dataset.ractas); const r = await sb.from('alert_recipients').update({ receives_actas: !r0.receives_actas }).eq('id', r0.id); if (r.error) return fail(r.error); toast(r0.receives_actas ? `${r0.name || r0.email} dejó de recibir avisos de actas` : `${r0.name || r0.email} vuelve a recibir avisos de actas`); await loadAdmin(); }
   if (t) { const r0 = state.rcpts.find(x => x.id === +t.dataset.rtoggle); const r = await sb.from('alert_recipients').update({ active: !r0.active }).eq('id', r0.id); if (r.error) return fail(r.error); await loadAdmin(); }
   if (d) { const r0 = state.rcpts.find(x => x.id === +d.dataset.rdel); if (!confirm(`¿Quitar a ${r0.email} de los avisos?`)) return; const r = await sb.from('alert_recipients').delete().eq('id', r0.id); if (r.error) return fail(r.error); toast('Destinatario quitado'); await loadAdmin(); }
 });
