@@ -27,7 +27,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':
 const fmtDate = (d) => d ? d.split('-').reverse().join('/') : '—';
 const orNull = (v) => (v === '' || v == null) ? null : v;
 const toNum = (v) => (v === '' || v == null) ? null : Number(v);
-const state = { me:null, cams:[], works:[], logs:[], shifts:[], entries:[], events:[], updates:[], kpis:[], users:[], rcpts:[], contracts:new Map(), people:new Map() };
+const state = { me:null, cams:[], works:[], logs:[], shifts:[], entries:[], events:[], updates:[], kpis:[], users:[], rcpts:[], teams:[], problemTypes:[], contacts:[], contracts:new Map(), people:new Map() };
 const mapFilter = new Set();
 let bigMap = null, bigLayer = null, miniMap = null, miniMarker = null, mapFitted = false;
 
@@ -40,6 +40,7 @@ const options = (map, sel, blank) => (blank ? '<option value="">—</option>' : 
 const canCams = () => state.me?.role === 'admin';
 const canWork = () => ['admin', 'tecnico'].includes(state.me?.role);
 const canTasks = () => state.me?.role === 'admin';
+const isTeam = () => state.me?.role === 'cuadrilla';
 const statusBadge = (s) => `<span class="badge" style="background:${COLOR[s]}22;color:${COLOR[s]}"><i style="width:8px;height:8px;border-radius:50%;background:${COLOR[s]}"></i>${STATUS[s]}</span>`;
 
 /* ---------- sesión ---------- */
@@ -49,14 +50,16 @@ function showLogin(msg) {
   $('#loginMsg').textContent = msg || '';
 }
 async function enter(user) {
-  const { data, error } = await sb.from('people').select('name,role,active,organization').eq('user_id', user.id).maybeSingle();
+  const { data, error } = await sb.from('people').select('name,role,active,organization,team_id').eq('user_id', user.id).maybeSingle();
   if (error) return fail(error);
   if (!data || !data.active) { await sb.auth.signOut(); return showLogin('Tu usuario todavía no tiene permisos. Pedile acceso a un administrador.'); }
   state.me = { ...data, id: user.id };
   $('#who').textContent = data.name; $('#avatar').textContent = (data.name || '?').trim().charAt(0).toUpperCase();
   ['#tabs', '#userMenu', '#live', '#dashRefresh'].forEach(s => { $(s).hidden = false; });
   $('#loginView').hidden = true; $('#appView').hidden = false;
-  $('#pwdBtn').hidden = data.organization === 'Visitante';
+  const team = data.role === 'cuadrilla'; document.body.classList.toggle('team', team);
+  document.querySelector('[data-tab="actas"]').hidden = team; document.querySelector('[data-tab="cameras"]').hidden = team; $('#exportWorks').hidden = team;
+  $('#pwdBtn').hidden = data.organization === 'Visitante' || team;
   $('#auditTab').hidden = data.role !== 'admin'; $('#adminTab').hidden = data.role !== 'admin'; $('#archiveTab').hidden = data.role !== 'admin'; $('#verifyAll').hidden = !canCams();
   $('#newCamera').hidden = !canCams(); $('#newWork').hidden = !canTasks();
   showTab('dashboard');
@@ -107,21 +110,25 @@ function setLive(ok) {
 }
 async function loadAll() {
   $('#errorBanner').hidden = true;
-  const [c, w, l, k, sh, en, up, kp] = await Promise.all([
-    sb.from('cameras').select('*').order('id'),
+  const team = isTeam(), none = Promise.resolve({ data: [], error: null });
+  const [c, w, l, k, sh, en, up, kp, tm, pt] = await Promise.all([
+    team ? sb.from('team_cameras').select('*').order('id') : sb.from('cameras').select('*').order('id'),
     sb.from('work_orders').select('*').order('id', { ascending:false }),
-    sb.from('logbook').select('*').order('date', { ascending:false }).order('id', { ascending:false }),
-    sb.from('epe_contracts').select('*'),
-    sb.from('shifts').select('*').order('shift_date', { ascending:false }).order('id', { ascending:false }).limit(200),
-    sb.from('shift_entries').select('*').order('occurred_at', { ascending:true }),
+    team ? none : sb.from('logbook').select('*').order('date', { ascending:false }).order('id', { ascending:false }),
+    team ? none : sb.from('epe_contracts').select('*'),
+    team ? none : sb.from('shifts').select('*').order('shift_date', { ascending:false }).order('id', { ascending:false }).limit(200),
+    team ? none : sb.from('shift_entries').select('*').order('occurred_at', { ascending:true }),
     sb.from('work_order_updates').select('*').order('created_at', { ascending:true }),
-    sb.from('kpi_snapshots').select('*').order('date', { ascending:true })
+    sb.from('kpi_snapshots').select('*').order('date', { ascending:true }),
+    sb.from('teams').select('*').order('name'),
+    sb.from('problem_types').select('*').order('sort')
   ]);
-  const err = [c, w, l, k, sh, en, up, kp].find(r => r.error)?.error;
+  const err = [c, w, l, k, sh, en, up, kp, tm, pt].find(r => r.error)?.error;
   if (err) { setLive(false); $('#errorBanner').textContent = `No se pudieron cargar los datos: ${err.message}`; $('#errorBanner').hidden = false; return; }
   state.cams = c.data; state.works = w.data; state.logs = l.data; state.shifts = sh.data; state.entries = en.data; state.updates = up.data; state.kpis = kp.data.map(x => ({ ...x, coverage: Number(x.coverage) }));
+  state.teams = tm.data; state.problemTypes = pt.data;
   buildEvents();
-  state.contracts = new Map(k.data.map(x => [x.id, x]));
+  state.contracts = team ? new Map(c.data.filter(x => x.contract_number).map(x => [x.epe_contract_id, { supply_number: x.contract_number }])) : new Map(k.data.map(x => [x.id, x]));
   if (state.me.role === 'admin') {
     const p = await sb.from('people').select('user_id,name');
     state.people = new Map((p.data || []).map(x => [x.user_id, x.name]));
@@ -145,6 +152,7 @@ const camName = (id) => { const c = state.cams.find(x => x.id === id); return c 
 
 /* ---------- secciones ---------- */
 function showTab(t) {
+  if (isTeam() && ['actas', 'cameras', 'admin', 'archive', 'audit'].includes(t)) t = 'dashboard';
   TABS.forEach(x => { $('#tab-' + x).hidden = x !== t; });
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
   closeMenu();
@@ -181,7 +189,7 @@ function renderDashboard() {
     kpi(pending.length, 'Tareas pendientes', `${late.length} vencidas`, late.length ? 'magenta' : 'white')
   ].join('');
 
-  renderBigMap(); renderHistoryChart(); renderRequests(); $('#heroPct').textContent = cov + '%'; $('#heroSub').textContent = fault ? `${fault} cámara${fault === 1 ? '' : 's'} con falla y ${late.length} tarea${late.length === 1 ? '' : 's'} vencida${late.length === 1 ? '' : 's'}. Todo el estado de la red, en tiempo real.` : 'Todas las cámaras activas están funcionando. Estado de la red en tiempo real.';
+  renderBigMap(); renderHistoryChart(); renderRequests(); renderVerify(); $('#dashLog').closest('.card').hidden = isTeam(); $('#heroPct').textContent = cov + '%'; $('#heroSub').textContent = fault ? `${fault} cámara${fault === 1 ? '' : 's'} con falla y ${late.length} tarea${late.length === 1 ? '' : 's'} vencida${late.length === 1 ? '' : 's'}. Todo el estado de la red, en tiempo real.` : 'Todas las cámaras activas están funcionando. Estado de la red en tiempo real.';
 
   const last = lastAction(), rank = { alta: 0, media: 1, baja: 2 };
   const att = cams.filter(c => FAULTS.includes(c.status) || c.status === 'mantenimiento').sort((a, b) => rank[a.priority] - rank[b.priority] || a.id - b.id);
@@ -261,8 +269,8 @@ function openFicha(id) {
     </dl>
     <h3 class="sub">Tareas de mantenimiento (${works.length})</h3>
     ${works.map(w => `<p style="margin:4px 0"><strong>#${w.id} ${esc(w.task_type)}</strong> · ${WSTATUS[w.status]} · ${w.progress}% · vence ${fmtDate(w.due_date)}</p>`).join('') || '<p class="hint">Sin tareas.</p>'}
-    <h3 class="sub">Historial de novedades</h3>
-    <div class="timeline">${logs.map(l => `<article class="event"><time>${fmtDate(l.date)}</time><p><strong>${esc(l.type || '')}</strong><br>${esc(l.description)}${l.result ? `<br><span class="hint">${esc(l.result)}</span>` : ''}</p></article>`).join('') || '<p class="hint">Sin novedades.</p>'}</div>`;
+    ${isTeam() ? '' : '<h3 class="sub">Historial de novedades</h3>'}
+    <div class="timeline"${isTeam() ? ' hidden' : ''}>${logs.map(l => `<article class="event"><time>${fmtDate(l.date)}</time><p><strong>${esc(l.type || '')}</strong><br>${esc(l.description)}${l.result ? `<br><span class="hint">${esc(l.result)}</span>` : ''}</p></article>`).join('') || '<p class="hint">Sin novedades.</p>'}</div>`;
   openDialog(`Cámara #${c.id} — ${c.name}`, body, null);
   const edit = $('#fichaEdit'); if (edit) edit.onclick = () => { $('#dlgCancel').click(); openCamera(c); };
 }
@@ -341,9 +349,14 @@ async function saveCamera(fd, cam) {
 const PRIOCOLOR = { alta:'#fa0e4e', media:'#f5a000', baja:'#8d94ad' };
 const prioBadge = (p) => `<span class="badge" style="background:${PRIOCOLOR[p]}22;color:${PRIOCOLOR[p]}">${PRIORITY[p]}</span>`;
 const isOpenWork = (w) => !['completado', 'cancelado'].includes(w.status);
+const needsVerify = (w) => !!w.team_id && w.status === 'completado' && !w.verified_at;
 const isLate = (w) => isOpenWork(w) && w.due_date && w.due_date < localDate(Date.now());
 const lateBadge = '<span class="badge" style="background:#fa0e4e22;color:#fa0e4e">Vencida</span>';
-const WFILTERS = { pendientes:['Pendientes', isOpenWork], vencidas:['Vencidas', isLate], curso:['En curso', w => w.status === 'en_proceso'], cerradas:['Cerradas', w => !isOpenWork(w)], todas:['Todas', () => true] };
+const teamName = (id) => state.teams.find(t => t.id === id)?.name || '';
+const ptLabel = (code) => state.problemTypes.find(p => p.code === code)?.label || '';
+const plazo = (h) => !h ? 'a definir' : h < 48 ? `${h} h` : `${Math.round(h / 24)} días`;
+const stateLabel = (w) => needsVerify(w) ? 'Terminada · a verificar' : w.status === 'completado' && w.team_id && w.verified_at ? 'Verificada' : WSTATUS[w.status];
+const WFILTERS = { pendientes:['Pendientes', isOpenWork], vencidas:['Vencidas', isLate], curso:['En curso', w => w.status === 'en_proceso'], verificar:['Para verificar', needsVerify], cerradas:['Cerradas', w => !isOpenWork(w)], todas:['Todas', () => true] };
 const workFilter = { v:'pendientes' };
 const progressBar = (p) => `<div class="progress" title="${p}%"><i style="width:${p}%"></i></div><small>${p}%</small>`;
 
@@ -353,8 +366,8 @@ function renderWorks() {
     ? (isOpenWork(a) ? (a.due_date || '9999').localeCompare(b.due_date || '9999') || b.id - a.id : b.id - a.id) : (isOpenWork(a) ? -1 : 1));
   $('#workCount').textContent = `${rows.length}`;
   $('#workBody').innerHTML = rows.map(w => `<tr class="clickrow" data-follow="${w.id}"><td>${w.id}</td><td><button type="button" class="linkish" data-ficha="${w.camera_id}">${esc(camName(w.camera_id))}</button></td><td>${esc(w.task_type)}</td>
-    <td>${prioBadge(w.priority)}</td><td>${WSTATUS[w.status]}</td><td>${progressBar(w.progress)}</td><td>${esc(w.assignee) || '—'}</td><td>${fmtDate(w.due_date)}${isLate(w) ? ' ' + lateBadge : ''}</td>
-    <td class="act"><span class="row-actions"><button class="btn small icon" data-follow="${w.id}" title="Seguimiento" aria-label="Seguimiento de la tarea ${w.id}">${ICON.list}</button>${canTasks() ? `<button class="btn small icon" data-work="${w.id}" title="Editar" aria-label="Editar tarea ${w.id}">${ICON.edit}</button>` : ''}</span></td></tr>`).join('')
+    <td>${prioBadge(w.priority)}</td><td>${stateLabel(w)}</td><td>${progressBar(w.progress)}</td><td>${esc(w.assignee) || '—'}</td><td>${fmtDate(w.due_date)}${isLate(w) ? ' ' + lateBadge : ''}</td>
+    <td class="act"><span class="row-actions"><button class="btn small icon" data-follow="${w.id}" title="Seguimiento" aria-label="Seguimiento de la orden ${w.id}">${ICON.list}</button>${canTasks() ? `<button class="btn small icon" data-work="${w.id}" title="Editar" aria-label="Editar tarea ${w.id}">${ICON.edit}</button>` : ''}</span></td></tr>`).join('')
     || '<tr><td colspan="9">No hay tareas en esta vista.</td></tr>';
 }
 $('#workChips').addEventListener('click', (e) => { const b = e.target.closest('[data-wf]'); if (b) { workFilter.v = b.dataset.wf; renderWorks(); } });
@@ -397,29 +410,78 @@ function openWork(w, prefill, onSaved) {
 
 function openFollowup(w) {
   if (!w) return;
-  const can = canTasks(), ups = state.updates.filter(u => u.work_order_id === w.id);
-  const KIND = { avance:'Avance', cierre:'Cierre', reapertura:'Reapertura' };
+  const admin = canTasks(), team = isTeam(), ups = state.updates.filter(u => u.work_order_id === w.id);
+  const canForm = (admin || team) && w.status !== 'cancelado' && !(team && w.status === 'completado');
+  const KIND = { avance:'Avance', cierre:'Cierre', reapertura:'Reapertura', verificacion:'Verificación' };
   const kv = (k, v, cls = '') => `<div class="kv ${cls}"><dt>${k}</dt><dd>${v ? esc(v) : '—'}</dd></div>`;
-  const tl = ups.map(u => `<article class="event"><time>${new Date(u.created_at).toLocaleDateString('es-AR')}<br>${hhmm(u.created_at)}</time><p><strong>${KIND[u.kind]}${u.progress != null ? ` · ${u.progress}%` : ''}${u.status ? ` · ${WSTATUS[u.status]}` : ''}</strong> <span class="hint" style="margin:0">— ${esc(u.author_name || '')}</span><br>${esc(u.note)}</p></article>`).join('')
+  const tl = ups.map(u => `<article class="event"><time>${new Date(u.created_at).toLocaleDateString('es-AR')}<br>${hhmm(u.created_at)}</time><p><strong>${KIND[u.kind] || u.kind}${u.progress != null ? ` · ${u.progress}%` : ''}</strong> <span class="hint" style="margin:0">— ${esc(u.author_name || '')}</span><br>${esc(u.note)}</p></article>`).join('')
     || '<p class="hint">Todavía no hay avances registrados.</p>';
-  const form = can ? `<h3 class="sub">Registrar avance</h3><fieldset><div class="grid">
-      <label>Estado<select name="status" id="fuStatus">${options(WSTATUS, w.status)}</select></label>
+  const stMap = team ? { en_proceso:'En proceso', completado:'Trabajo terminado' } : WSTATUS;
+  const form = canForm ? `<h3 class="sub">Registrar avance</h3><fieldset><div class="grid">
+      <label>Estado<select name="status" id="fuStatus">${options(stMap, team ? 'en_proceso' : w.status)}</select></label>
       ${field('progress', 'Avance %', w.progress, 'type="number" min="0" max="100" id="fuProg"')}
-      ${area('note', 'Nota (qué se hizo o qué falta)', '', 'wide')}
-      <label class="check wide" id="fuCamWrap" hidden><input type="checkbox" name="camok"> Al cerrar la tarea, marcar la cámara como operativa</label></div></fieldset>` : '';
-  const body = `<div class="ficha-head">${prioBadge(w.priority)}<span class="count">${WSTATUS[w.status]}</span>${isLate(w) ? lateBadge : ''}</div>
-    <dl class="kvgrid">${kv('Cámara', camName(w.camera_id))}${kv('Tarea', w.task_type)}${kv('Responsable', w.assignee)}${kv('Inicio', w.start_date && fmtDate(w.start_date))}${kv('Vence', w.due_date && fmtDate(w.due_date))}${kv('Cierre real', w.completed_at && fmtDate(w.completed_at))}${kv('Descripción', w.notes, 'wide')}</dl>
-    ${form}<h3 class="sub">Seguimiento</h3><div class="timeline">${tl}</div>`;
-  openDialog(`Tarea #${w.id}`, body, can ? async (fd) => {
+      ${team ? field('who', 'Quién hizo el trabajo', '', 'required placeholder="Nombre y apellido"', 'wide') : ''}
+      ${area('note', team ? 'Qué se hizo o qué falta' : 'Nota (qué se hizo o qué falta)', '', 'wide')}
+      ${team ? '<p class="hint wide" id="fuHint" style="margin:0"></p>' : '<label class="check wide" id="fuCamWrap" hidden><input type="checkbox" name="camok"> Al cerrar la tarea, marcar la cámara como operativa</label>'}</div></fieldset>`
+    : (team && w.status === 'completado' ? `<p class="hint" style="margin-top:14px">${w.verified_at ? 'Trabajo verificado por la operadora. ¡Gracias!' : 'Trabajo terminado: la operadora está verificando que la cámara funcione. Si no, la orden se reabre y te llega un aviso.'}</p>` : '');
+  const reassign = admin && w.status !== 'cancelado' ? `<h3 class="sub">Equipo a cargo</h3><div class="grid" style="align-items:end"><label>Reasignar a<select id="fuTeam"><option value="">—</option>${state.teams.map(t => `<option value="${t.id}"${w.team_id === t.id ? ' selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label><div><button type="button" class="btn small" id="fuReassign">Reasignar y avisar al equipo</button></div></div>` : '';
+  const body = `<div class="ficha-head">${prioBadge(w.priority)}<span class="count">${esc(stateLabel(w))}</span>${isLate(w) ? lateBadge : ''}</div>
+    <dl class="kvgrid">${kv('Cámara', camName(w.camera_id))}${kv('Problema', ptLabel(w.problem_type) || w.task_type)}${kv('Equipo', teamName(w.team_id) || w.assignee)}${kv('Inicio', w.start_date && fmtDate(w.start_date))}${kv('Vence', w.due_date && fmtDate(w.due_date))}${kv('Cierre', w.completed_at && fmtDate(w.completed_at))}${kv('Detalle', w.notes, 'wide')}</dl>
+    ${form}${reassign}<h3 class="sub">Seguimiento</h3><div class="timeline">${tl}</div>`;
+  openDialog(`Orden #${w.id}`, body, canForm ? async (fd) => {
     const st = fd.get('status'), closing = st === 'completado' && w.status !== 'completado';
-    const r = await sb.rpc('register_work_update', { p_work: w.id, p_note: (fd.get('note') || '').toString(), p_progress: +fd.get('progress') || 0, p_status: st, p_camera_ok: closing && !!fd.get('camok') });
-    if (r.error) throw r.error; toast(closing ? 'Tarea cerrada' : 'Avance registrado'); await loadAll();
+    let note = (fd.get('note') || '').toString().trim();
+    if (team) { const who = (fd.get('who') || '').toString().trim(); if (!who) throw new Error('Escribí quién hizo el trabajo.'); if (!note) throw new Error('Contá qué se hizo o qué falta.'); note = `${who}: ${note}`; }
+    const r = await sb.rpc('register_work_update', { p_work: w.id, p_note: note, p_progress: +fd.get('progress') || 0, p_status: st, p_camera_ok: !team && closing && !!fd.get('camok') });
+    if (r.error) throw r.error; toast(closing ? (team ? 'Trabajo terminado: se avisó a la operadora' : 'Tarea cerrada') : 'Avance registrado'); await loadAll();
   } : null, null, () => {
-    const s = $('#fuStatus'); if (!s) return;
-    const sync = () => { $('#fuCamWrap').hidden = s.value !== 'completado' || w.status === 'completado'; if (s.value === 'completado') $('#fuProg').value = 100; };
-    s.addEventListener('change', sync); sync();
-  }, 'Registrar');
+    const s = $('#fuStatus');
+    if (s) {
+      const sync = () => {
+        if ($('#fuCamWrap')) $('#fuCamWrap').hidden = s.value !== 'completado' || w.status === 'completado';
+        if (s.value === 'completado') $('#fuProg').value = 100;
+        if ($('#fuHint')) $('#fuHint').textContent = s.value === 'completado' ? 'La operadora verificará que la cámara funcione. Si no, la orden se reabre y te llega un nuevo aviso.' : '';
+      };
+      s.addEventListener('change', sync); sync();
+    }
+    const rb = $('#fuReassign');
+    if (rb) rb.onclick = async () => {
+      const t = $('#fuTeam').value; if (!t) return toast('Elegí el equipo.', true);
+      if (!confirm(`¿Reasignar la orden #${w.id} a ${teamName(t)}? Se le avisa por mail.`)) return;
+      const r = await sb.rpc('reassign_work', { p_work: w.id, p_team: t }); if (r.error) return fail(r.error);
+      $('#dlgCancel').click(); toast('Orden reasignada'); await loadAll();
+    };
+  }, team ? 'Guardar' : 'Registrar');
 }
+
+/* ---------- para verificar (operadora y administración) ---------- */
+function renderVerify() {
+  const staff = ['admin', 'tecnico'].includes(state.me?.role), items = staff ? state.works.filter(needsVerify) : [];
+  $('#verifyCard').hidden = !items.length; $('#verifyCount').textContent = `${items.length}`;
+  $('#verifyList').innerHTML = items.map(w => {
+    const cl = [...state.updates].reverse().find(u => u.work_order_id === w.id && u.kind === 'cierre');
+    return `<div class="req verify"><div class="req-main"><div class="req-top"><span class="badge" style="background:#1f51ff22;color:#1f51ff">${esc(teamName(w.team_id))}</span><span class="hint" style="margin:0">Orden #${w.id} · ${esc(w.task_type)}${cl ? ` · terminada el ${fmtDate(localDate(cl.created_at))}` : ''}</span></div>
+      <div class="entry-cams">${camChips([w.camera_id])}</div>${cl ? `<p><b>Cierre:</b> ${esc(cl.note)}</p>` : ''}</div>
+      <div class="row-actions"><button class="btn small primary" data-vok="${w.id}">Cámara funcionando</button><button class="btn small" data-vbad="${w.id}">Sigue con problemas</button></div></div>`;
+  }).join('');
+}
+document.addEventListener('click', (ev) => {
+  const ok = ev.target.closest('[data-vok]'), bad = ev.target.closest('[data-vbad]');
+  if (ok) {
+    const w = state.works.find(x => x.id === +ok.dataset.vok); if (!w) return;
+    openDialog('Confirmar que la cámara funciona', `<p>Orden #${w.id} · ${esc(camName(w.camera_id))}</p><p class="hint">Comprobá en el monitor que la cámara transmite bien. La cámara pasa a "Operativa" y la orden queda verificada.</p>${area('note', 'Comentario (opcional)', '', 'wide')}`, async (fd) => {
+      const r = await sb.rpc('verify_work', { p_work: w.id, p_ok: true, p_note: (fd.get('note') || '').toString() }); if (r.error) throw r.error;
+      toast('Verificada: la cámara quedó operativa'); await loadAll();
+    }, null, null, 'Cámara funcionando');
+  }
+  if (bad) {
+    const w = state.works.find(x => x.id === +bad.dataset.vbad); if (!w) return;
+    openDialog('La cámara sigue con problemas', `<p>Orden #${w.id} · ${esc(camName(w.camera_id))}</p><p class="hint">La orden se reabre y el equipo recibe un nuevo aviso.</p>${area('note', '¿Qué sigue fallando?', '', 'wide')}`, async (fd) => {
+      const r = await sb.rpc('verify_work', { p_work: w.id, p_ok: false, p_note: (fd.get('note') || '').toString() }); if (r.error) throw r.error;
+      toast('Orden reabierta: se avisó al equipo'); await loadAll();
+    }, null, null, 'Reabrir la orden');
+  }
+});
 
 /* ---------- actas de turno ---------- */
 const turnoNow = () => { const h = new Date().getHours(); return h >= 6 && h < 14 ? 'manana' : h >= 14 && h < 22 ? 'tarde' : 'noche'; };
@@ -435,7 +497,7 @@ const entryTs = (shift, time) => {
   return new Date(`${d}T${time}:00`).toISOString();
 };
 
-const reqBadge = (e) => !e.needs_action ? '' : e.handled_at ? `<span class="badge" style="background:#1f51ff22;color:#1f51ff">Atendida${e.handled_task_id ? ` · tarea #${e.handled_task_id}` : ''}</span>` : '<span class="badge" style="background:#f2b60033;color:#8a6500">Solicitud pendiente</span>';
+const reqBadge = (e) => !e.needs_action ? '' : e.handled_at ? `<span class="badge" style="background:#1f51ff22;color:#1f51ff">${esc(e.handled_note || 'Atendida')}</span>` : '<span class="badge" style="background:#f2b60033;color:#8a6500">Solicitud pendiente</span>';
 function entryRow(e, edit) {
   return `<div class="entry"><time>${hhmm(e.occurred_at)}</time><div class="entry-main">${catBadge(e.category)} ${reqBadge(e)} <span class="entry-cams">${camChips(e.camera_ids)}</span>
     <p>${esc(e.description)}</p>${e.action_taken ? `<p class="hint" style="margin:0"><b>Acción:</b> ${esc(e.action_taken)}</p>` : ''}</div>
@@ -485,33 +547,38 @@ function openShiftDlg() {
 }
 
 function openEntry(shift, entry) {
-  const isNew = !entry, locked = !!(entry && entry.handled_at);
+  const isNew = !entry, locked = !!(entry && entry.handled_at), hasType = !!(entry && entry.problem_type);
   const e = entry || { category: 'novedad', camera_ids: [], occurred_at: new Date().toISOString() }, sel = new Set(e.camera_ids);
   const list = state.cams.filter(c => c.active).map(c => `<label class="check cam-opt" data-t="${esc([c.id, c.name, c.address].join(' ').toLowerCase())}"><input type="checkbox" name="cams" value="${c.id}"${sel.has(c.id) ? ' checked' : ''}> #${c.id} ${esc(c.name)} <span class="hint" style="margin:0">— ${esc(c.address || '')}</span></label>`).join('');
+  const ptOpts = '<option value="">— Solo una novedad: no hay nada que reparar o limpiar —</option>'
+    + state.problemTypes.filter(p => p.active).sort((a, b) => a.sort - b.sort).map(p => `<option value="${p.code}"${e.problem_type === p.code ? ' selected' : ''}>${esc(p.label)}</option>`).join('');
   const body = `<fieldset><div class="grid">
     ${field('time', 'Hora', hhmm(e.occurred_at), 'type="time" required')}
     <label>Tipo<select name="category" id="catSel">${options(CAT, e.category)}</select></label>
     <div class="wide"><label>Cámaras involucradas<input type="search" id="camFind" placeholder="Buscar cámara…"></label><div class="checklist" id="camList">${list}</div></div>
     ${area('description', 'Qué pasó', e.description, 'wide')}
     ${area('action_taken', 'Acción tomada', e.action_taken, 'wide')}</div></fieldset>
-    <fieldset><legend>Solicitud a la administración</legend><div class="grid">
-      <label class="check wide"><input type="checkbox" name="req" id="reqChk" ${e.needs_action ? 'checked' : ''} ${locked ? 'disabled' : ''}> Pedir intervención de la administración (reparar, limpiar, revisar…)</label>
-      <p class="hint wide" style="margin:0">Se avisa por mail a la administración, que decide qué tarea corresponde. Las <b>fallas</b> siempre generan una solicitud.${locked ? ' <b>Esta solicitud ya fue atendida.</b>' : ''}</p></div></fieldset>
+    <fieldset><legend>¿Hay que enviar a alguien a resolverlo?</legend><div class="grid">
+      <label class="wide">Tipo de problema<select name="problem_type" id="ptSel" ${(locked || hasType) ? 'disabled' : ''}>${ptOpts}</select></label>
+      <p class="hint wide" id="ptInfo" style="margin:0"></p></div></fieldset>
     ${isNew ? `<fieldset><legend>Estado de las cámaras</legend><div class="grid">
-      <label class="check wide"><input type="checkbox" name="chg"> Cambiar el estado de las cámaras elegidas a:</label>
-      <label class="wide"><select name="newstatus">${options(STATUS, 'falta_red')}</select></label></div></fieldset>` : ''}`;
+      <label class="check wide"><input type="checkbox" name="chg" id="chgChk"> Cambiar el estado de las cámaras elegidas a:</label>
+      <label class="wide"><select name="newstatus" id="stSel">${options(STATUS, 'falta_red')}</select></label></div></fieldset>` : ''}`;
   openDialog(isNew ? 'Agregar novedad' : 'Editar novedad', body, async (fd) => {
     const g = (k) => orNull((fd.get(k) ?? '').toString().trim());
     const cams = fd.getAll('cams').map(Number), desc = g('description'), category = fd.get('category');
+    const pt = hasType ? entry.problem_type : (fd.get('problem_type') || null), ptRow = state.problemTypes.find(x => x.code === pt);
     if (!desc) throw new Error('Escribí qué pasó.');
     if (isNew && fd.get('chg') && !cams.length) throw new Error('Elegí al menos una cámara para cambiar su estado.');
+    if (isNew && ptRow?.team_id && !cams.length) throw new Error('Elegí la cámara afectada para enviar el pedido al equipo.');
     const p = { occurred_at: entryTs(shift, fd.get('time')), category, description: desc, action_taken: g('action_taken'), camera_ids: cams };
-    if (!locked) p.needs_action = category === 'falla' || !!fd.get('req');
+    if (isNew) p.problem_type = pt;
+    if (!locked) p.needs_action = category === 'falla' || !!pt;
     if (!isNew) { const r = await sb.from('shift_entries').update(p).eq('id', entry.id); if (r.error) throw r.error; toast('Novedad guardada'); await loadAll(); return; }
     const ins = await sb.from('shift_entries').insert({ shift_id: shift.id, ...p }).select('id').single();
     if (ins.error) throw ins.error;
     const done = [];
-    if (p.needs_action) done.push('solicitud enviada a la administración');
+    if (ptRow?.team_id) done.push(`pedido enviado a ${teamName(ptRow.team_id)}`); else if (p.needs_action) done.push('solicitud enviada a la administración');
     if (fd.get('chg')) {
       const r = await sb.rpc('report_cameras_status', { p_cams: cams, p_status: fd.get('newstatus') });
       if (r.error) { await loadAll(); throw new Error('La novedad se guardó, pero no se pudo cambiar el estado: ' + r.error.message); }
@@ -520,9 +587,19 @@ function openEntry(shift, entry) {
     toast('Novedad registrada' + (done.length ? ' · ' + done.join(' · ') : '')); await loadAll();
   }, !isNew && !locked ? async () => { const r = await sb.from('shift_entries').delete().eq('id', entry.id); if (r.error) throw r.error; toast('Novedad eliminada'); await loadAll(); } : null, () => {
     $('#camFind').addEventListener('input', (ev) => { const q = ev.target.value.trim().toLowerCase(); document.querySelectorAll('.cam-opt').forEach(l => { l.hidden = !!q && !l.dataset.t.includes(q); }); });
-    const cat = $('#catSel'), req = $('#reqChk');
-    const sync = () => { if (locked) return; if (cat.value === 'falla') { req.checked = true; req.disabled = true; } else req.disabled = false; };
-    cat.addEventListener('change', sync); sync();
+    const sel2 = $('#ptSel'), info = $('#ptInfo'), cat = $('#catSel'), chg = $('#chgChk'), st = $('#stSel');
+    const describe = () => {
+      const p = state.problemTypes.find(x => x.code === sel2.value);
+      if (!p) info.textContent = hasType ? `Ya derivada: ${ptLabel(entry.problem_type)}.` : 'Solo queda registrado en el acta. Si hay algo para reparar o limpiar, elegí el tipo de problema y el sistema avisa solo.';
+      else if (!p.team_id) info.textContent = 'No se deriva sola: la administración decide a quién enviar.';
+      else info.innerHTML = `Se envía automáticamente a <b>${esc(teamName(p.team_id))}</b> · prioridad ${PRIORITY[p.priority]} · plazo ${plazo(p.due_hours)}. Se crea una orden por cada cámara elegida.`;
+    };
+    sel2.addEventListener('change', () => {
+      describe(); const p = state.problemTypes.find(x => x.code === sel2.value);
+      if (p && cat.value !== 'falla') cat.value = 'falla';
+      if (p?.suggested_status && chg) { chg.checked = true; st.value = p.suggested_status; }
+    });
+    describe();
   });
 }
 
@@ -590,7 +667,7 @@ function openDialog(title, body, onSave, onDelete, afterOpen, saveLabel) {
   const close = () => { dispose(); dlg.close(); };
   $('#dlgCancel').onclick = close;
   if (onDelete) $('#dlgDelete').onclick = async () => { if (!confirm('¿Eliminar definitivamente? Queda registrado en el historial de cambios.')) return; try { await onDelete(); close(); } catch (e) { msg.textContent = e.message; } };
-  const human = (m = '') => /row-level security.*work_orders|work_orders.*row-level/.test(m) ? 'Solo la administración puede crear o modificar tareas.' : /alert_recipients_email/.test(m) ? 'Ese correo ya está cargado.' : /shifts_shift_date/.test(m) ? 'Ya existe un acta para esa fecha y turno.' : /type inet/.test(m) ? 'La IP no es válida (ejemplo: 192.168.1.35).' : /duplicate key.*ip/.test(m) ? 'Esa IP ya está asignada a otra cámara.' : /epe_contract/.test(m) && /duplicate/.test(m) ? 'Ese contrato EPE ya está asignado a otra cámara.' : /duplicate key/.test(m) ? 'Ya existe un registro con ese número.' : m;
+  const human = (m = '') => /row-level security.*work_orders|work_orders.*row-level/.test(m) ? 'Solo la administración puede crear o modificar tareas.' : /team_contacts_team_id_email/.test(m) ? 'Ese correo ya está cargado en el equipo.' : /alert_recipients_email/.test(m) ? 'Ese correo ya está cargado.' : /shifts_shift_date/.test(m) ? 'Ya existe un acta para esa fecha y turno.' : /type inet/.test(m) ? 'La IP no es válida (ejemplo: 192.168.1.35).' : /duplicate key.*ip/.test(m) ? 'Esa IP ya está asignada a otra cámara.' : /epe_contract/.test(m) && /duplicate/.test(m) ? 'Ese contrato EPE ya está asignado a otra cámara.' : /duplicate key/.test(m) ? 'Ya existe un registro con ese número.' : m;
   form.onsubmit = async (e) => { e.preventDefault(); msg.textContent = ''; try { await onSave(new FormData(form)); close(); } catch (err) { msg.textContent = human(err.message || String(err)); } };
   dlg.oncancel = dispose;
   dlg.showModal();
@@ -746,7 +823,7 @@ $('#exportActas').addEventListener('click', () => downloadCsv('actas', [
     return es.length ? es.map(e => [...base, hhmm(e.occurred_at), CAT[e.category], e.camera_ids.map(i => camName(i)).join(' | '), e.description, e.action_taken, s.handover_notes]) : [[...base, '', '', '', '', '', s.handover_notes]]; })]));
 
 /* ---------- usuarios y avisos ---------- */
-const ROLE = { admin:'Administrador', tecnico:'Operador', lector:'Solo lectura' };
+const ROLE = { admin:'Administrador', tecnico:'Operador', lector:'Solo lectura', cuadrilla:'Cuadrilla' };
 async function callUsers(body) {
   const r = await sb.functions.invoke('admin-users', { body });
   if (r.error) { let m = r.error.message; try { const j = await r.error.context.json(); m = j.error || m; } catch (e) {} throw new Error(m); }
@@ -754,7 +831,8 @@ async function callUsers(body) {
   return r.data;
 }
 async function loadAdmin() {
-  const [u, r] = await Promise.allSettled([callUsers({ action: 'list' }), sb.from('alert_recipients').select('*').order('id')]);
+  const [u, r, tc] = await Promise.allSettled([callUsers({ action: 'list' }), sb.from('alert_recipients').select('*').order('id'), sb.from('team_contacts').select('*').order('team_id').order('id')]);
+  state.contacts = tc.status === 'fulfilled' && !tc.value.error ? tc.value.data : []; renderTeams();
   if (u.status === 'fulfilled') state.users = u.value.users; else { state.users = []; $('#userBody').innerHTML = `<tr><td colspan="6">No se pudo cargar la lista: ${esc(u.reason.message)}</td></tr>`; }
   state.rcpts = r.status === 'fulfilled' && !r.value.error ? r.value.data : [];
   if (u.status === 'fulfilled') renderUsers(); renderRcpts();
@@ -773,7 +851,7 @@ function renderRcpts() {
 }
 $('#newUser').addEventListener('click', () => openDialog('Nuevo usuario', `<fieldset><div class="grid">
     ${field('name', 'Nombre y apellido', '', 'required')}${field('email', 'Correo', '', 'type="email" required')}
-    <label>Rol<select name="role">${options(ROLE, 'tecnico')}</select></label>${field('organization', 'Organización', 'Municipalidad')}</div></fieldset>
+    <label>Rol<select name="role">${options({ admin: ROLE.admin, tecnico: ROLE.tecnico, lector: ROLE.lector }, 'tecnico')}</select></label>${field('organization', 'Organización', 'Municipalidad')}</div></fieldset>
     <p class="hint"><b>Operador:</b> carga actas y tareas. <b>Solo lectura:</b> ve todo sin modificar. <b>Administrador:</b> todo.<br>Se genera una contraseña temporal y se envía por mail a la persona, que debe cambiarla al ingresar.</p>`, async (fd) => {
   await callUsers({ action: 'create', name: fd.get('name').toString().trim(), email: fd.get('email').toString().trim(), role: fd.get('role'), organization: fd.get('organization').toString().trim() });
   toast('Usuario creado y acceso enviado por mail'); await loadAdmin();
@@ -801,6 +879,45 @@ $('#rcptBody').addEventListener('click', async (e) => {
 });
 $('#adminTab').addEventListener('click', () => showTab('admin'));
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-go]'); if (b) showTab(b.dataset.go); });
+
+/* ---------- protocolo de trabajo ---------- */
+function protocoloHtml() {
+  const rows = state.problemTypes.filter(p => p.active).sort((a, b) => a.sort - b.sort).map(p => `<tr><td>${esc(p.label)}</td><td>${p.team_id ? esc(teamName(p.team_id)) : 'La administración decide'}</td><td>${p.team_id ? PRIORITY[p.priority] : '—'}</td><td>${p.team_id ? plazo(p.due_hours) : '—'}</td></tr>`).join('');
+  return `<article class="acta proto"><header class="acta-head"><img src="/assets/logo-san-jose-de-la-esquina.svg" alt="Municipalidad de San José de la Esquina"><div><h2>Protocolo de atención de fallas</h2><p>Central de Monitoreo · Municipalidad de San José de la Esquina</p></div></header>
+    <h3 class="sub">¿A quién se envía cada problema?</h3>
+    <div class="table-scroll"><table><thead><tr><th>Problema</th><th>Se envía a</th><th>Prioridad</th><th>Plazo</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <h3 class="sub">Cómo se trabaja</h3>
+    <ol class="steps">
+      <li><b>Detección.</b> La operadora ve el problema en el monitor.</li>
+      <li><b>Registro.</b> Lo anota en el acta con "Agregar novedad": elige las cámaras y el tipo de problema.</li>
+      <li><b>Envío automático.</b> El sistema crea la orden y avisa por mail al equipo que corresponde, con prioridad y fecha límite.</li>
+      <li><b>Atención.</b> La cuadrilla entra al panel, va a "Mantenimiento", registra los avances (quién hizo el trabajo y qué se hizo) y, al terminar, toca "Trabajo terminado".</li>
+      <li><b>Verificación.</b> La operadora comprueba en el monitor: "Cámara funcionando" cierra la orden y deja la cámara operativa; "Sigue con problemas" reabre la orden y vuelve a avisar al equipo.</li>
+      <li><b>Plazos.</b> Si se vence el plazo, el equipo y la administración reciben un recordatorio.</li>
+      <li><b>Otros casos.</b> Si el problema no figura en la lista ("Otro / no sé"), la administración decide a quién enviarlo.</li>
+    </ol></article>`;
+}
+$('#protoBtn').addEventListener('click', () => {
+  closeMenu();
+  openDialog('Protocolo de trabajo', protocoloHtml() + '<div class="actions" style="position:static;justify-content:flex-start;margin-top:12px;padding:0"><button type="button" class="btn primary" id="protoPrint">Imprimir / Guardar PDF</button></div>', null);
+  $('#protoPrint').onclick = () => printActa(protocoloHtml());
+});
+
+/* ---------- equipos de trabajo (correos que reciben las órdenes) ---------- */
+function renderTeams() {
+  $('#teamBody').innerHTML = state.contacts.map(c => `<tr><td>${esc(teamName(c.team_id))}</td><td>${esc(c.email)}</td><td>${esc(c.name) || '—'}</td><td class="act"><button class="btn small danger" data-tdel="${c.id}">Quitar</button></td></tr>`).join('')
+    || '<tr><td colspan="4">Todavía no hay correos cargados: los equipos ven sus órdenes al entrar al panel, pero no reciben aviso por mail.</td></tr>';
+}
+$('#newTeamContact').addEventListener('click', () => openDialog('Agregar correo a un equipo', `<fieldset><div class="grid"><label>Equipo<select name="team_id">${state.teams.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label>${field('email', 'Correo', '', 'type="email" required')}${field('name', 'Nombre (opcional)', '')}</div></fieldset><p class="hint">Este correo recibe un aviso cada vez que se asigna, se reabre o vence una orden de su equipo.</p>`, async (fd) => {
+  const r = await sb.from('team_contacts').insert({ team_id: fd.get('team_id'), email: fd.get('email').toString().trim().toLowerCase(), name: orNull(fd.get('name').toString().trim()) });
+  if (r.error) throw r.error; toast('Correo agregado'); await loadAdmin();
+}));
+$('#teamBody').addEventListener('click', async (e) => {
+  const d = e.target.closest('[data-tdel]'); if (!d) return;
+  if (!confirm('¿Quitar este correo del equipo?')) return;
+  const r = await sb.from('team_contacts').delete().eq('id', +d.dataset.tdel); if (r.error) return fail(r.error);
+  toast('Correo quitado'); await loadAdmin();
+});
 
 /* ---------- modo pantalla ---------- */
 let kiosk = false, kioskTimer = null;

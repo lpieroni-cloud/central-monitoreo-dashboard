@@ -333,3 +333,14 @@ body.kiosk .hero{display:none}
 .req p{margin:6px 0 0}
 .req-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 @media(max-width:760px){.req{flex-direction:column}}
+
+/* Cuadrillas y verificación */
+body.team .trio{grid-template-columns:repeat(2,minmax(0,1fr))}
+body.team #dashStatus .mini-stats{display:none}
+body.team .hero-links [data-go="actas"],body.team .hero-links [data-go="cameras"]{display:none}
+#verifyList{display:flex;flex-direction:column;gap:10px}
+#verifyCard .card-head h2{color:var(--brand-blue)}
+.req.verify{border-left-color:var(--brand-blue);background:color-mix(in srgb,var(--brand-blue) 6%,var(--surface))}
+.proto ol.steps{margin:6px 0 0;padding-left:22px;display:grid;gap:8px}
+.proto table td{white-space:normal}
+@media(max-width:1180px){body.team .trio{grid-template-columns:1fr}}

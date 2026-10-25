@@ -35,6 +35,7 @@
         <button class="btn user" id="userBtn" aria-haspopup="menu" aria-expanded="false"><span class="avatar" id="avatar">·</span><span id="who"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
         <div class="menu" id="menu" role="menu" hidden>
           <button role="menuitem" id="pwdBtn">Cambiar contraseña</button>
+          <button role="menuitem" id="protoBtn">Protocolo de trabajo</button>
           <button role="menuitem" id="kioskBtn">Modo pantalla</button>
           <button role="menuitem" id="adminTab" hidden>Usuarios y avisos</button>
           <button role="menuitem" id="archiveTab" hidden>Archivo histórico</button>
@@ -97,6 +98,11 @@
             <div class="att-list" id="dashAtt"></div>
           </article>
         </section>
+
+        <article class="card" id="verifyCard" hidden>
+          <header class="card-head"><div><h2>Para verificar</h2><p class="hint">Trabajos terminados por una cuadrilla. Comprobá en el monitor que la cámara funcione.</p></div><span class="count" id="verifyCount"></span></header>
+          <div id="verifyList"></div>
+        </article>
 
         <article class="card" id="reqCard" hidden>
           <header class="card-head"><div><h2>Solicitudes de intervención</h2><p class="hint">Informadas por el operador en las actas. La administración decide qué hacer en cada caso.</p></div><span class="count" id="reqCount"></span></header>
@@ -169,6 +175,10 @@
         <article class="card">
           <header class="card-head"><div><h2>Avisos por mail</h2><p class="hint">Reciben las fallas de cámaras, tareas nuevas y vencidas, y las actas cerradas</p></div><button class="btn primary" id="newRcpt">Agregar destinatario</button></header>
           <div class="table-scroll"><table><thead><tr><th>Correo</th><th>Nombre</th><th>Estado</th><th>Avisos de actas</th><th class="act"></th></tr></thead><tbody id="rcptBody"></tbody></table></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>Equipos de trabajo</h2><p class="hint">Correos que reciben las órdenes de la Cuadrilla eléctrica y de SJVC</p></div><button class="btn primary" id="newTeamContact">Agregar correo</button></header>
+          <div class="table-scroll"><table><thead><tr><th>Equipo</th><th>Correo</th><th>Nombre</th><th class="act"></th></tr></thead><tbody id="teamBody"></tbody></table></div>
         </article>
       </section>
 
